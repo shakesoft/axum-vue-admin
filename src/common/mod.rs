@@ -10,3 +10,4 @@ pub mod sse;
 pub mod cedar_utils;
 pub mod templates;
 pub mod logging;
+pub mod entities;

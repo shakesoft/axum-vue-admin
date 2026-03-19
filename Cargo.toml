@@ -34,7 +34,7 @@ futures-util = "0.3.31"
 tokio-stream = "0.1.17"
 uuid = { version = "1.8", features = ["v4", "serde"] }
 cookie = "0.18.1"
-cedar-policy = { version = "4.5.0" }
+cedar-policy = { version = "4.9.0" }
 moka = { version = "0.12", features = ["future"] }
 sha2 = "0.10.9"
 askama = "0.14.0"
@@ -42,6 +42,11 @@ lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls"] }
 toml = "0.8"
 clap = { version = "4.5.4", features = ["derive"] }
 sqlx = "0.7.4"
+openssl-sys= {version = "0.9.109", features = ["vendored"]}
+openssl = "0.10.73"
+async-trait = "0.1.89"
+
+
 
 [[bin]]
 name="playground"
@@ -50,3 +55,9 @@ path = "src/playground.rs"
 [[bin]]
 name="main"
 path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

@@ -8,7 +8,6 @@ use utoipa::ToSchema;
 // 定义UI策略的类型别名，便于理解
 pub type UiPolicies = HashSet<String>;
 
-
 #[derive(Default, Debug, Serialize, Deserialize, ToSchema, FromQueryResult)]
 pub struct Info {
     #[serde(rename = "uuid")]

@@ -1,9 +1,9 @@
+use crate::entity::user_groups::Model as GroupModel;
 use chrono::{DateTime, Utc};
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
-use crate::entity::user_groups::Model as GroupModel;
 
 fn default_page() -> u64 {
     1
@@ -23,7 +23,6 @@ pub struct QueryParams {
     pub name: Option<String>,
     pub fields: Option<String>,
 }
-
 
 #[derive(Default, Debug, Serialize, Deserialize, FromQueryResult, ToSchema)]
 pub struct GroupResponse {
@@ -59,7 +58,6 @@ pub struct CreateGroupDto {
     pub description: Option<String>,
 }
 
-
 #[derive(Default, Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct AssignUsersDto {
     pub user_uuids: Vec<String>,
@@ -69,7 +67,6 @@ pub struct AssignUsersDto {
 pub struct AssignRolesDto {
     pub role_uuid: String,
 }
-
 
 #[derive(Default, Debug, Serialize, Deserialize, ToSchema, FromQueryResult, Validate)]
 pub struct GroupRoleResponse {

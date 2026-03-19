@@ -1,9 +1,9 @@
 // # 日志配置
 
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 use tracing::Level;
 use tracing_subscriber::filter::LevelFilter;
-use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -31,22 +31,19 @@ pub struct LogRotationConfig {
     pub daily: Rotation,
 }
 
-
-
 impl Default for LogConfig {
     fn default() -> Self {
-        LogConfig{
+        LogConfig {
             level: "info".to_string(),
             file: "log.log".to_string(),
-            rotation: LogRotationConfig::default()
+            rotation: LogRotationConfig::default(),
         }
     }
 }
 
-
 impl Default for LogRotationConfig {
     fn default() -> Self {
-        LogRotationConfig{
+        LogRotationConfig {
             max_size: 100,
             max_files: 7,
             daily: Rotation::Daily,

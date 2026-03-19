@@ -18,7 +18,7 @@ pub struct Model {
     pub phone: Option<String>,
     pub password: String,
     pub dept_id: i32,
-    #[sea_orm(custom_type="i8")]
+    #[sea_orm(custom_type = "i8")]
     pub is_active: bool,
     pub avatar: Option<String>,
     pub last_login: Option<DateTime>,
@@ -56,7 +56,6 @@ impl Related<super::departments::Entity> for Entity {
     }
 }
 
-
 impl Related<super::user_group_members::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::UserGroupMembers.def()
@@ -89,4 +88,3 @@ impl Related<super::user_groups::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-

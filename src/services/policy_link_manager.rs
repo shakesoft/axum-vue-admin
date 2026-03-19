@@ -1,24 +1,24 @@
 // src/services/policy_link_manager.rs
 
-use crate::errors::app_error::{AppError};
-use crate::services::cedar_auth::{CedarAuthService};
-use anyhow::Result;
-use cedar_policy::{EntityUid, PolicyId};
-use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait, ActiveModelTrait};
-use std::collections::HashSet;
-use std::sync::Arc;
 use crate::entity::template_links;
+use crate::errors::app_error::AppError;
 use crate::not_found;
 use crate::schemas::cedar_policy::TemplateLinkRecord;
+use crate::services::cedar_auth::CedarAuthService;
+use anyhow::Result;
+use cedar_policy::{EntityUid, PolicyId};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct PolicyLinkManager {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
     auth_service: Arc<CedarAuthService>,
 }
 
 impl PolicyLinkManager {
-    pub fn new(db: DatabaseConnection, auth_service: Arc<CedarAuthService>) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>, auth_service: Arc<CedarAuthService>) -> Self {
         Self { db, auth_service }
     }
 
@@ -27,12 +27,16 @@ impl PolicyLinkManager {
             return Ok(());
         }
 
-        let cached_records = self.auth_service.get_template_link_records_from_cache().await?
+        let cached_records = self
+            .auth_service
+            .get_template_link_records_from_cache()
+            .await?
             .unwrap_or_default();
 
         let cached_ids: HashSet<_> = cached_records.iter().map(|r| &r.link_uuid).collect();
 
-        let ids_to_load: Vec<_> = link_ids.iter()
+        let ids_to_load: Vec<_> = link_ids
+            .iter()
             .filter(|id| !cached_ids.contains(id))
             .cloned()
             .collect();
@@ -47,7 +51,9 @@ impl PolicyLinkManager {
         }
 
         let all_records = [cached_records, new_records_from_db].concat();
-        self.auth_service.update_template_link_records_in_cache(&all_records).await?;
+        self.auth_service
+            .update_template_link_records_in_cache(&all_records)
+            .await?;
 
         Ok(())
     }
@@ -60,15 +66,20 @@ impl PolicyLinkManager {
             resource_uid: sea_orm::Set(record.resource_uid.to_string()),
             ..Default::default()
         };
-        new_link.insert(&self.db).await?;
+        new_link.insert(self.db.as_ref()).await?;
 
-        let mut cached_records = self.auth_service.get_template_link_records_from_cache().await?
+        let mut cached_records = self
+            .auth_service
+            .get_template_link_records_from_cache()
+            .await?
             .unwrap_or_default();
 
         cached_records.retain(|r| r.link_uuid != record.link_uuid);
         cached_records.push(record);
 
-        self.auth_service.update_template_link_records_in_cache(&cached_records).await?;
+        self.auth_service
+            .update_template_link_records_in_cache(&cached_records)
+            .await?;
 
         Ok(())
     }
@@ -76,40 +87,55 @@ impl PolicyLinkManager {
     pub async fn delete_link(&self, link_uuid: &PolicyId) -> Result<(), AppError> {
         let res = template_links::Entity::delete_many()
             .filter(template_links::Column::LinkUuid.eq(link_uuid.to_string()))
-            .exec(&self.db).await?;
+            .exec(self.db.as_ref())
+            .await?;
         if res.rows_affected == 0 {
-            return Err(not_found!(format!("未找到可删除的 link_uuid 为“{}”的链接。", link_uuid)));
+            return Err(not_found!(format!(
+                "未找到可删除的 link_uuid 为“{}”的链接。",
+                link_uuid
+            )));
         }
 
-        let mut cached_records = self.auth_service.get_template_link_records_from_cache().await?
+        let mut cached_records = self
+            .auth_service
+            .get_template_link_records_from_cache()
+            .await?
             .unwrap_or_default();
 
         let initial_len = cached_records.len();
         cached_records.retain(|r| &r.link_uuid != link_uuid);
 
         if cached_records.len() < initial_len {
-            self.auth_service.update_template_link_records_in_cache(&cached_records).await?;
+            self.auth_service
+                .update_template_link_records_in_cache(&cached_records)
+                .await?;
         }
 
         Ok(())
     }
 
-    async fn load_link_records_from_db(&self, link_ids: &[PolicyId]) -> Result<Vec<TemplateLinkRecord>, AppError> {
+    async fn load_link_records_from_db(
+        &self,
+        link_ids: &[PolicyId],
+    ) -> Result<Vec<TemplateLinkRecord>, AppError> {
         let string_ids: Vec<String> = link_ids.iter().map(|id| id.to_string()).collect();
 
         let link_models = template_links::Entity::find()
             .filter(template_links::Column::LinkUuid.is_in(string_ids))
-            .all(&self.db)
+            .all(self.db.as_ref())
             .await?;
 
-        let link_records = link_models.into_iter().map(|model| {
-            Ok(TemplateLinkRecord {
-                link_uuid: model.link_uuid.parse()?,
-                template_uuid: model.template_uuid.parse()?,
-                principal_uid: model.principal_uid.parse()?,
-                resource_uid: model.resource_uid.parse()?,
+        let link_records = link_models
+            .into_iter()
+            .map(|model| {
+                Ok(TemplateLinkRecord {
+                    link_uuid: model.link_uuid.parse()?,
+                    template_uuid: model.template_uuid.parse()?,
+                    principal_uid: model.principal_uid.parse()?,
+                    resource_uid: model.resource_uid.parse()?,
+                })
             })
-        }).collect::<Result<Vec<TemplateLinkRecord>, AppError>>()?;
+            .collect::<Result<Vec<TemplateLinkRecord>, AppError>>()?;
 
         Ok(link_records)
     }

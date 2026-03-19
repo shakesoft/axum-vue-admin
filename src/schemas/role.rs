@@ -1,8 +1,8 @@
 use crate::entity::roles::Model as RoleModel;
+use chrono::{DateTime, Utc};
 use sea_orm::FromQueryResult;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
-use chrono::{DateTime, Utc};
 use validator::Validate;
 
 fn default_page() -> u64 {
@@ -31,30 +31,19 @@ pub struct CreateRoleDto {
     pub description: String,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct UpdateRoleDto {
-    pub id: i32,
     #[validate(length(min = 3, max = 100))]
     pub name: Option<String>,
     pub description: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromQueryResult, ToSchema)]
-pub struct RoleFieldResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uuid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-}
-
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, FromQueryResult)]
 pub struct RoleResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub uuid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "uuid")]
+    pub role_uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "name")]
+    pub role_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,19 +53,16 @@ pub struct RoleResponse {
 impl From<RoleModel> for RoleResponse {
     fn from(role: RoleModel) -> Self {
         Self {
-            uuid: Some(role.role_uuid),
+            role_uuid: Some(role.role_uuid),
             created_at: Some(role.created_at),
-            name: Some(role.role_name),
+            role_name: Some(role.role_name),
             description: role.description,
         }
     }
 }
 
-
-#[derive(Debug, Serialize, Deserialize, ToSchema, FromQueryResult)]
-pub struct RolePermissionResponse {
-    pub id: i64,
-    pub name: String,
-    pub slug: String,
+#[derive(Debug, Clone)]
+pub struct RoleEntityInfo {
+    pub role_uuid: String,
+    pub role_name: String,
 }
-

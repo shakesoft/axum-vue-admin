@@ -1,19 +1,37 @@
-use std::collections::{HashMap, HashSet};
-use crate::entity::{departments::{Column as DepartmentColumn, Entity as DepartmentEntity, Relation as DepartmentRelation}, roles::{Column as RoleColumn, Entity as RoleEntity, Relation as RoleRelation, Model as RoleModel}, user_group_members::Column as UserGroupMemberColumn, user_groups::{Column as UserGroupColumn, Entity as UserGroupEntity, Relation as UserGroupRelation}, user_roles::{Column as UserRoleColumn, Relation as UserRoleRelation}, group_roles::{Column as GroupRoleColumn}, users::{Column as UserColumn, Entity as UserEntity}, users, user_groups};
-use crate::errors::app_error::AppError;
 use crate::config::state::AppState;
+use crate::entity::{
+    departments::{
+        Column as DepartmentColumn, Entity as DepartmentEntity, Relation as DepartmentRelation,
+    },
+    group_roles::Column as GroupRoleColumn,
+    roles::{
+        Column as RoleColumn, Entity as RoleEntity, Model as RoleModel, Relation as RoleRelation,
+    },
+    user_group_members::Column as UserGroupMemberColumn,
+    user_groups,
+    user_groups::{
+        Column as UserGroupColumn, Entity as UserGroupEntity, Relation as UserGroupRelation,
+    },
+    user_roles::{Column as UserRoleColumn, Relation as UserRoleRelation},
+    users,
+    users::{Column as UserColumn, Entity as UserEntity},
+};
+use crate::errors::app_error::AppError;
+use std::collections::{HashMap, HashSet};
 
+use crate::common::cedar_utils::{AuthAction, ResourceType};
+use crate::common::entities::{get_role_models_by_user_uuid};
+use crate::not_found;
+use crate::schemas::auth::Claims;
+use crate::schemas::cedar_policy::CedarContext;
 use crate::schemas::me::{Info, Profile, UiPolicies};
 use crate::schemas::user::{DeptResponse, GroupResponse};
-use crate::schemas::{auth::CurrentUser};
-use sea_orm::{ColumnTrait, ConnectionTrait, DbBackend, DbErr, EntityTrait, JoinType, ModelTrait, QueryFilter, QuerySelect, QueryTrait, RelationTrait, Statement};
+use crate::services::user::service::UserService;
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DbBackend, DbErr, EntityTrait, JoinType, ModelTrait, QueryFilter,
+    QuerySelect, QueryTrait, RelationTrait, Statement,
+};
 use tokio::task::JoinSet;
-use crate::not_found;
-use crate::schemas::cedar_policy::CedarContext;
-use crate::services::role::get_role_models_by_user_uuid;
-use crate::services::user::UserService;
-use crate::utils::cedar_utils::{AuthAction, ResourceType};
-
 
 type UiKey = &'static str;
 type UiActionMap = &'static [(UiKey, AuthAction)];
@@ -49,12 +67,12 @@ const UI_ACTIONS: UiActionMap = &[
     ("button:policy_create", AuthAction::CreatePolicy),
     ("button:policy_update", AuthAction::UpdatePolicy),
     ("button:policy_delete", AuthAction::DeletePolicy),
+    ("menus:settings_management", AuthAction::ViewPolicy),
 ];
-
 
 #[derive(Clone)]
 pub struct MeService {
-    app_state: AppState
+    app_state: AppState,
 }
 
 impl MeService {
@@ -62,9 +80,10 @@ impl MeService {
         Self { app_state }
     }
 
-    pub async fn profile(&self,
-                         current_user: CurrentUser,
-                         context: CedarContext
+    pub async fn profile(
+        &self,
+        current_user: Claims,
+        context: CedarContext,
     ) -> Result<Profile, AppError> {
         let ui_policies = self.ui_policies(&current_user, context).await?;
         let roles = self.roles(&current_user).await?;
@@ -81,23 +100,23 @@ impl MeService {
             roles,
             info,
             departments,
-            groups
+            groups,
         };
         Ok(profile)
     }
 
-    async fn ui_policies(&self,
-                         current_user: &CurrentUser,
-                         context: CedarContext
+    async fn ui_policies(
+        &self,
+        current_user: &Claims,
+        context: CedarContext,
     ) -> Result<UiPolicies, AppError> {
-
         let mut ui_policies = HashSet::with_capacity(UI_ACTIONS.len());
 
         let mut join_set = JoinSet::new();
 
         for (ui_key, action) in UI_ACTIONS.iter() {
             let auth_service = self.app_state.auth_service.clone();
-            let user_uuid = current_user.uuid.clone();
+            let user_uuid = current_user.sub.clone();
             let ctx = context.clone();
             let action = *action;
             let key = ui_key.to_string();
@@ -119,7 +138,7 @@ impl MeService {
                         ui_policies.insert(key);
                     }
                 }
-                Ok(Err(_e)) => continue, // 权限检查失败
+                Ok(Err(_e)) => continue,                 // 权限检查失败
                 Err(e) => return Err(AppError::from(e)), // 任务执行失败
             }
         }
@@ -127,59 +146,52 @@ impl MeService {
         Ok(ui_policies)
     }
 
-
-    async fn department(
-        &self,
-        current_user: &CurrentUser,
-    ) -> Result<Option<DeptResponse>, AppError> {
-
+    async fn department(&self, current_user: &Claims) -> Result<Option<DeptResponse>, AppError> {
         let department = DepartmentEntity::find()
             .column_as(DepartmentColumn::DeptUuid, "uuid")
             .column_as(DepartmentColumn::Name, "name")
-            .join(
-                JoinType::InnerJoin,
-                DepartmentRelation::Users.def(),
-            )
-            .filter(UserColumn::UserUuid.eq(&current_user.uuid))
+            .join(JoinType::InnerJoin, DepartmentRelation::Users.def())
+            .filter(UserColumn::UserUuid.eq(&current_user.sub))
             .into_model::<DeptResponse>()
-            .one(&self.app_state.db)
+            .one(self.app_state.db.as_ref())
             .await?;
 
         Ok(department)
     }
 
-    async fn groups(&self, current_user: &CurrentUser) -> Result<Vec<GroupResponse>, AppError> {
+    async fn groups(&self, current_user: &Claims) -> Result<Vec<GroupResponse>, AppError> {
         let user = users::Entity::find()
-            .filter(users::Column::UserUuid.eq(&current_user.uuid))
-            .one(&self.app_state.db)
+            .filter(users::Column::UserUuid.eq(&current_user.sub))
+            .one(self.app_state.db.as_ref())
             .await?
             .ok_or(not_found!("User not found"))?;
 
         let user_groups = user
             .find_related(user_groups::Entity)
             .into_model::<GroupResponse>()
-            .all(&self.app_state.db)
+            .all(self.app_state.db.as_ref())
             .await?;
 
         Ok(user_groups)
     }
 
-    async fn info(&self, current_user: &CurrentUser) -> Result<Info, AppError> {
+    async fn info(&self, current_user: &Claims) -> Result<Info, AppError> {
         let user = UserEntity::find()
-            .filter(users::Column::UserUuid.eq(&current_user.uuid))
+            .filter(users::Column::UserUuid.eq(&current_user.sub))
             .into_model::<Info>()
-            .one(&self.app_state.db)
+            .one(self.app_state.db.as_ref())
             .await?
             .ok_or(not_found!("User not found".to_string()))?;
         Ok(user)
     }
 
-    async fn roles(&self, current_user: &CurrentUser) -> Result<Vec<String>, AppError> {
-        let role_names = get_role_models_by_user_uuid(&self.app_state.db, current_user.uuid.clone())
-            .await?
-            .into_iter()
-            .map(|x| x.role_name)
-            .collect::<Vec<String>>();
+    async fn roles(&self, current_user: &Claims) -> Result<Vec<String>, AppError> {
+        let role_names =
+            get_role_models_by_user_uuid(self.app_state.db.as_ref(), current_user.sub.clone())
+                .await?
+                .into_iter()
+                .map(|x| x.role_name)
+                .collect::<Vec<String>>();
 
         Ok(role_names)
     }

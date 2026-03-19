@@ -1,18 +1,18 @@
+use crate::common::jwt::verify_access_token;
 use crate::config::app::BLACK_LIST_JTI;
 use crate::config::state::AppState;
 use crate::errors::app_error::AppError;
-use crate::schemas::{auth::CurrentUser, cedar_policy::CedarContext};
-use crate::utils::jwt::decode_token;
+use crate::schemas::{ cedar_policy::CedarContext};
+use crate::{bad_request, unauthorized};
 use axum::{
     extract::{ConnectInfo, Request, State},
     middleware::Next,
     response::Response,
 };
+use cedar_policy::{Context, Expression};
 use redis::AsyncCommands;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use cedar_policy::{Context, Expression};
-use crate::unauthorized;
 
 pub async fn auth_guard_middleware(
     State(state): State<AppState>,
@@ -25,7 +25,7 @@ pub async fn auth_guard_middleware(
         .and_then(|h| h.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
     {
-        let payload = decode_token(token)?;
+        let payload = verify_access_token(token)?;
         // 检查黑名单...
         let mut redis_conn = state.redis.get_multiplexed_async_connection().await?;
         if redis_conn
@@ -35,13 +35,7 @@ pub async fn auth_guard_middleware(
             return Err(unauthorized!("InvalidToken".to_string()));
         };
 
-        let current_user = CurrentUser {
-            uuid: payload.sub,
-            dept_uuid: payload.dept_id,
-            username: payload.name,
-            is_super_admin: payload.is_super_admin,
-        };
-        req.extensions_mut().insert(current_user);
+        req.extensions_mut().insert(payload);
 
         let remote_addr = req
             .extensions()
@@ -50,9 +44,9 @@ pub async fn auth_guard_middleware(
             .unwrap_or(SocketAddr::from_str("127.0.0.1:6000").unwrap())
             .ip()
             .to_string();
-        
+
         let cedar_context = CedarContext {
-            source_ip: remote_addr
+            source_ip: remote_addr,
         };
         req.extensions_mut().insert(cedar_context);
 

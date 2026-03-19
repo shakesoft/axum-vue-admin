@@ -1,7 +1,9 @@
 use crate::config::openapi::CEDAR_POLICY_TAG;
 use crate::errors::app_error::AppError;
-use crate::schemas::auth::CurrentUser;
-use crate::schemas::cedar_policy::{CedarContext, CedarPolicyResponse, CreatePolicyDto, QueryParams};
+use crate::schemas::auth::{Claims};
+use crate::schemas::cedar_policy::{
+    CedarContext, CedarPolicyResponse, CreatePolicyDto, QueryParams,
+};
 use crate::schemas::paginated::PaginatedApiResponse;
 use crate::schemas::response::ApiResponse;
 use crate::services::cedar_policy::CedarPolicyService;
@@ -27,23 +29,21 @@ use validator::Validate;
 pub async fn list_policies(
     State(service): State<CedarPolicyService>,
     Query(params): Query<QueryParams>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
     params.validate()?;
-    let (policies, total) = service.list_policies(
-        current_user,
-        context,
-        params.clone(),
-    ).await?;
-    Ok(PaginatedApiResponse::success(policies,
-                                     total,
-                                     params.page,
-                                     params.page_size,
-                                     StatusCode::OK
+    let (policies, total) = service
+        .list_policies(current_user, context, params.clone())
+        .await?;
+    Ok(PaginatedApiResponse::success(
+        policies,
+        total,
+        params.page,
+        params.page_size,
+        StatusCode::OK,
     ))
 }
-
 
 #[utoipa::path(
     post,
@@ -58,19 +58,14 @@ pub async fn list_policies(
 )]
 pub async fn create_policy(
     State(service): State<CedarPolicyService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<CreatePolicyDto>,
 ) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    let policy = service.create_policy(
-        current_user,
-        context,
-        dto,
-    ).await?;
+    let policy = service.create_policy(current_user, context, dto).await?;
     Ok(ApiResponse::success(policy, StatusCode::CREATED))
 }
-
 
 #[utoipa::path(
     get,
@@ -88,15 +83,13 @@ pub async fn create_policy(
 pub async fn get_policy(
     State(service): State<CedarPolicyService>,
     Path(policy_uuid): Path<String>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let policy = service.get_policy(
-        current_user,
-        context,
-        policy_uuid,
-    ).await?;
-    
+    let policy = service
+        .get_policy(current_user, context, policy_uuid)
+        .await?;
+
     Ok(ApiResponse::success(policy, StatusCode::OK))
 }
 
@@ -117,22 +110,17 @@ pub async fn get_policy(
 pub async fn update_policy(
     State(service): State<CedarPolicyService>,
     Path(policy_uuid): Path<String>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<CreatePolicyDto>,
-) -> Result<impl IntoResponse, AppError> {  
-    
+) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    
-    let policy = service.update_policy(
-        current_user,
-        context,
-        policy_uuid,
-        dto
-    ).await?;
+
+    let policy = service
+        .update_policy(current_user, context, policy_uuid, dto)
+        .await?;
     Ok(ApiResponse::success(policy, StatusCode::OK))
 }
-
 
 #[utoipa::path(
     delete,
@@ -153,18 +141,15 @@ pub async fn update_policy(
 pub async fn delete_policy(
     State(service): State<CedarPolicyService>,
     Path(policy_uuid): Path<String>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.delete_policy(
-        current_user,
-        context,
-        policy_uuid,
-    ).await?;
-    
+    service
+        .delete_policy(current_user, context, policy_uuid)
+        .await?;
+
     Ok(StatusCode::NO_CONTENT)
 }
-
 
 #[utoipa::path(
     post,
@@ -178,12 +163,9 @@ pub async fn delete_policy(
 )]
 pub async fn update_policies_cache(
     State(service): State<CedarPolicyService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-     service.update_policies_cache(
-        current_user,
-        context
-    ).await?;
+    service.update_policies_cache(current_user, context).await?;
     Ok(StatusCode::ACCEPTED)
 }

@@ -1,22 +1,22 @@
 use axum::extract::Query;
-use axum::{extract::{Path, State}, http::StatusCode, response::IntoResponse, Extension, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Extension, Json,
+};
 use validator::Validate;
 
+use crate::schemas::auth::{Claims};
+use crate::schemas::cedar_policy::CedarContext;
 use crate::schemas::{
     paginated::PaginatedApiResponse,
     response::ApiResponse,
-    role::{
-        CreateRoleDto, QueryParams, RoleResponse,
-        UpdateRoleDto,
-    },
+    role::{CreateRoleDto, QueryParams, RoleResponse, UpdateRoleDto},
 };
-use crate::{
-    config::openapi::ROLE_TAG,
-    errors::app_error::AppError,
-    services::role::RoleService,
-};
-use crate::schemas::auth::CurrentUser;
-use crate::schemas::cedar_policy::CedarContext;
+use crate::{config::openapi::ROLE_TAG, 
+            errors::app_error::AppError, 
+            services::role::service::RoleService};
 
 #[utoipa::path(get, path = "",
     params(QueryParams),
@@ -29,14 +29,13 @@ use crate::schemas::cedar_policy::CedarContext;
 pub async fn list_roles(
     State(service): State<RoleService>,
     Query(params): Query<QueryParams>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
     params.validate()?;
-    let (roles, total) = service.list_roles(
-        current_user,
-        context,
-        params.clone()).await?;
+    let (roles, total) = service
+        .list_roles(current_user, context, params.clone())
+        .await?;
     Ok(PaginatedApiResponse::success(
         roles,
         total,
@@ -64,13 +63,10 @@ pub async fn list_roles(
 pub async fn get_role(
     Path(role_uuid): Path<String>,
     State(service): State<RoleService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let role = service.get_role(
-        current_user,
-        context,
-        role_uuid).await?;
+    let role = service.get_role(current_user, context, role_uuid).await?;
     Ok(ApiResponse::success(role, StatusCode::OK))
 }
 
@@ -87,15 +83,12 @@ pub async fn get_role(
 )]
 pub async fn create_role(
     State(service): State<RoleService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<CreateRoleDto>,
 ) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    let role = service.create_role(
-        current_user,
-        context,
-        dto).await?;
+    let role = service.create_role(current_user, context, dto).await?;
     Ok(ApiResponse::success(role, StatusCode::CREATED))
 }
 
@@ -113,16 +106,14 @@ pub async fn create_role(
 pub async fn update_role(
     Path(role_uuid): Path<String>,
     State(service): State<RoleService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<UpdateRoleDto>,
 ) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    let role = service.update_role(
-        current_user,
-        context,
-        role_uuid,
-        dto).await?;
+    let role = service
+        .update_role(current_user, context, role_uuid, dto)
+        .await?;
     Ok(ApiResponse::success(role, StatusCode::OK))
 }
 
@@ -141,12 +132,11 @@ pub async fn update_role(
 pub async fn delete_role(
     Path(role_uuid): Path<String>,
     State(service): State<RoleService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.delete_role(
-        current_user,
-        context,
-        role_uuid).await?;
+    service
+        .delete_role(current_user, context, role_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

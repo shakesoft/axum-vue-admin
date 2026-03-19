@@ -1,40 +1,32 @@
+use crate::common::cedar_utils::{
+    AuthAction, ResourceType
+    ,
+};
+use crate::common::crypto::hash_password;
 use crate::config::state::AppState;
 use crate::entity::{
     departments, group_roles, roles, user_group_members, user_groups, user_roles, users,
 };
 use crate::errors::app_error::AppError;
-use crate::schemas::auth::CurrentUser;
+use crate::schemas::auth::Claims;
 use crate::schemas::cedar_policy::CedarContext;
 use crate::schemas::user::{
     AssignRoleDto, CreateUserDto, DeptResponse, DirectRole, GroupResponse, GroupRole, QueryParams,
     UpdateUserDto, UserResponse, UserRoleInfo, UserUUID,
 };
-use crate::services::department::{
-    DepartmentService, find_descendants_entities, get_dept_entities,
-};
-use crate::services::groups::{GroupService, get_group_entities};
-use crate::services::role::{RoleService, get_role_entities, get_role_models_by_user_uuid};
-use crate::utils::cedar_utils::{
-    AuthAction, ENTITY_ATTR_NAME, ENTITY_TYPE_GROUP, ENTITY_TYPE_ROLE, ENTITY_TYPE_USER,
-    ResourceType, entities2json,
-};
-use crate::utils::crypto::hash_password;
-use crate::{bad_request, conflict, not_found};
-use cedar_policy::{
-    Entities, Entity, EntityId, EntityTypeName, EntityUid, RestrictedExpression, Schema,
-};
-use sea_orm::JoinType::InnerJoin;
+use crate::{conflict, not_found};
+use cedar_policy::Entities;
 use sea_orm::sea_query::Query;
+use sea_orm::JoinType::InnerJoin;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, JoinType,
-    ModelTrait, PaginatorTrait, QueryFilter, QuerySelect, QueryTrait, RelationTrait, Select,
-    SelectColumns, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, EntityTrait, JoinType,
+    ModelTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait
+    , Set, TransactionTrait,
 };
-use serde_json::{Value as JsonValue, json};
+use serde_json::{json, Value as JsonValue};
 use std::collections::{HashMap, HashSet};
-use std::str::FromStr;
-use tracing::debug;
 use uuid::Uuid;
+use crate::common::entities::{get_dept_entities, get_group_entities, get_role_entities, get_user_entities};
 
 const ROLE_SOURCE_DIRECT: &str = "direct";
 const ROLE_SOURCE_GROUP: &str = "group";
@@ -50,59 +42,24 @@ impl UserService {
             app_state: app_state.clone(),
         }
     }
-    // 获取用户实体信息
-    pub async fn get_user_role_models(&self, user_id: i32) -> Result<Vec<roles::Model>, AppError> {
-        // --- 子查询 1: 获取直接分配给用户的角色 ID ---
-        let direct_role_ids_query = user_roles::Entity::find()
-            .select_only() // 只选择特定列
-            .column(user_roles::Column::RoleId) // 我们只需要 role_id
-            .filter(user_roles::Column::UserId.eq(user_id));
-
-        // --- 子查询 2: 获取通过用户组继承的角色 ID ---
-        // 首先，找到该用户所属的所有 group_id
-        let group_ids_query = user_group_members::Entity::find()
-            .select_only()
-            .column(user_group_members::Column::GroupId)
-            .filter(user_group_members::Column::UserId.eq(user_id));
-
-        // 然后，基于上面的 group_id 找到所有关联的 role_id
-        let group_role_ids_query = group_roles::Entity::find()
-            .select_only()
-            .column(group_roles::Column::RoleId)
-            .filter(group_roles::Column::GroupId.in_subquery(group_ids_query.into_query()));
-
-        // --- 主查询: 获取所有符合条件的角色信息 ---
-        // 使用 Condition::any() (即 OR) 来合并两个子查询的结果
-        let all_roles = roles::Entity::find()
-            .filter(
-                Condition::any()
-                    // 条件1: role_id 在直接分配的角色 ID 列表中
-                    .add(roles::Column::RoleId.in_subquery(direct_role_ids_query.into_query()))
-                    // 条件2: role_id 在通过用户组继承的角色 ID 列表中
-                    .add(roles::Column::RoleId.in_subquery(group_role_ids_query.into_query())),
-            )
-            .all(&self.app_state.db)
-            .await?;
-        Ok(all_roles)
-    }
 
     pub async fn list_users(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         params: QueryParams,
     ) -> Result<(Vec<JsonValue>, u64), AppError> {
         self.app_state
             .auth_service
             .check_permission(
-                &current_user.uuid,
+                &current_user.sub,
                 context,
                 AuthAction::ViewUser,
                 ResourceType::User(None),
             )
             .await?;
 
-        let db = &self.app_state.db;
+        let db = self.app_state.db.as_ref();
 
         // 如果 fields 参数为空，默认返回所有核心字段。
         let requested_fields: HashSet<String> = params
@@ -122,12 +79,12 @@ impl UserService {
                     "avatar",
                     "last_login",
                 ]
-                .iter()
-                .map(|s| s.to_string())
-                .collect()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect()
             });
 
-        let mut query = users::Entity::find().filter(users::Column::IsActive.eq(true));
+        let mut query = users::Entity::find();
 
         // 应用其他过滤条件
         if let Some(username) = params.username {
@@ -142,7 +99,7 @@ impl UserService {
                 .column(departments::Column::DeptId)
                 .filter(departments::Column::DeptUuid.eq(dept_uuid))
                 .into_tuple::<i32>()
-                .one(&self.app_state.db)
+                .one(self.app_state.db.as_ref())
                 .await?
                 .ok_or(not_found!("department not found"))?;
             query = query.filter(users::Column::DeptId.eq(dept_id));
@@ -182,7 +139,7 @@ impl UserService {
             select_query =
                 select_query.join(JoinType::LeftJoin, users::Relation::Departments.def());
         }
-
+        select_query = select_query.order_by_desc(users::Column::LastLogin);
         // 执行分页查询，并将结果转换为 JSON
         let paginator = select_query.into_json().paginate(db, params.page_size);
         let total = paginator.num_items().await?;
@@ -195,7 +152,11 @@ impl UserService {
         if requested_fields.contains("groups") && !users_json.is_empty() {
             let user_ids: Vec<i32> = users_json
                 .iter()
-                .filter_map(|u| u.get("user_id").and_then(|id| id.as_i64()).map(|id| id as i32))
+                .filter_map(|u| {
+                    u.get("user_id")
+                        .and_then(|id| id.as_i64())
+                        .map(|id| id as i32)
+                })
                 .collect();
 
             if !user_ids.is_empty() {
@@ -217,14 +178,16 @@ impl UserService {
 
                 let mut grouped_by_uuid: HashMap<String, Vec<JsonValue>> = HashMap::new();
                 for (relation, group_opt) in user_group_relations {
-                    if let (Some(group), Some(uuid)) = (group_opt, id_to_uuid_map.get(&relation.user_id)) {
+                    if let (Some(group), Some(uuid)) =
+                        (group_opt, id_to_uuid_map.get(&relation.user_id))
+                    {
                         grouped_by_uuid
                             .entry(uuid.clone())
                             .or_default()
                             .push(json!({
-                            "uuid": group.user_group_uuid,
-                            "name": group.name,
-                        }));
+                                "uuid": group.user_group_uuid,
+                                "name": group.name,
+                            }));
                     }
                 }
                 // 将 Vec<JsonValue> 转换为单个 JsonValue::Array
@@ -246,7 +209,9 @@ impl UserService {
                     let dept_name = user_obj.remove("dept_name");
 
                     let dept_json = match (dept_uuid, dept_name) {
-                        (Some(id), Some(name)) if !id.is_null() => json!({"uuid": id, "name": name}),
+                        (Some(id), Some(name)) if !id.is_null() => {
+                            json!({"uuid": id, "name": name})
+                        }
                         _ => JsonValue::Null,
                     };
                     user_obj.insert("dept".to_string(), dept_json);
@@ -279,19 +244,22 @@ impl UserService {
         Ok((users_json, total))
     }
 
-
     pub async fn get_user(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         user_uuid: String,
     ) -> Result<UserResponse, AppError> {
         let schema = self.app_state.auth_service.get_schema_copy().await;
-        let es = get_user_entities(&self.app_state.db, user_uuid.clone(), &schema).await?;
+        let es = get_user_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            user_uuid.clone(), 
+            &schema).await?;
         self.app_state
             .auth_service
             .check_permission_with_entities(
-                &current_user.uuid,
+                &current_user.sub,
                 context,
                 AuthAction::ViewUser,
                 ResourceType::User(Some(user_uuid.clone())),
@@ -303,7 +271,7 @@ impl UserService {
         let user_with_dept = users::Entity::find()
             .filter(users::Column::UserUuid.eq(user_uuid))
             .find_also_related(departments::Entity)
-            .one(&self.app_state.db)
+            .one(self.app_state.db.as_ref())
             .await?;
 
         if let Some((user, dept)) = user_with_dept {
@@ -311,7 +279,7 @@ impl UserService {
             let user_groups = user_groups::Entity::find()
                 .join(InnerJoin, user_groups::Relation::UserGroupMembers.def())
                 .filter(user_group_members::Column::UserId.eq(user.user_id))
-                .all(&self.app_state.db)
+                .all(self.app_state.db.as_ref())
                 .await?;
 
             let user_response = UserResponse {
@@ -328,7 +296,7 @@ impl UserService {
                 groups: user_groups
                     .into_iter()
                     .map(|g| GroupResponse {
-                        uuid: g.user_group_uuid,
+                        user_group_uuid: g.user_group_uuid,
                         name: g.name,
                     })
                     .collect(),
@@ -344,18 +312,27 @@ impl UserService {
 
     pub async fn create_user(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         dto: CreateUserDto,
     ) -> Result<UserResponse, AppError> {
         let schema = self.app_state.auth_service.get_schema_copy().await;
-        let dept_es = get_dept_entities(&self.app_state.db, &dto.dept, &schema).await?;
-        let group_es = get_group_entities(&self.app_state.db, &dto.groups, &schema).await?;
+        let dept_es = get_dept_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            &dto.dept, 
+            &schema).await?;
+        let group_es = get_group_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            &dto.groups, 
+            &schema
+        ).await?;
         let merged_es = dept_es.add_entities(group_es.clone(), Some(&schema))?;
         self.app_state
             .auth_service
             .check_permission_with_entities(
-                &current_user.uuid,
+                &current_user.sub,
                 context.clone(),
                 AuthAction::CreateUser,
                 ResourceType::User(None),
@@ -367,7 +344,7 @@ impl UserService {
             self.app_state
                 .auth_service
                 .check_permission_with_entities(
-                    &current_user.uuid,
+                    &current_user.sub,
                     context.clone(),
                     AuthAction::CreateUser,
                     ResourceType::Group(Some(group_id)),
@@ -379,9 +356,7 @@ impl UserService {
         let txn = self.app_state.db.begin().await?;
 
         if users::Entity::find()
-            .filter(
-                users::Column::Email.eq(&dto.email)
-            )
+            .filter(users::Column::Email.eq(&dto.email))
             .one(&txn)
             .await?
             .is_some()
@@ -422,7 +397,8 @@ impl UserService {
             .all(&txn)
             .await?;
 
-        let user_groups = user_group_ids.into_iter()
+        let user_groups = user_group_ids
+            .into_iter()
             .map(|group_id| user_group_members::ActiveModel {
                 user_id: Set(user.user_id),
                 group_id: Set(group_id),
@@ -441,22 +417,30 @@ impl UserService {
 
     pub async fn update_user(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         user_uuid: String,
         dto: UpdateUserDto,
     ) -> Result<UserResponse, AppError> {
-
-
         let schema = self.app_state.auth_service.get_schema_copy().await;
 
         let mut entities = Entities::empty();
-        let user_es = get_user_entities(&self.app_state.db, user_uuid.clone(), &schema).await?;
+        let user_es = get_user_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            user_uuid.clone(), 
+            &schema
+        ).await?;
         entities = entities.add_entities(user_es, Some(&schema))?;
 
         let mut target_dept_id: Option<i32> = None;
         if let Some(dept_uuid) = dto.dept.clone() {
-            let dept_es = get_dept_entities(&self.app_state.db, &dept_uuid, &schema).await?;
+            let dept_es = get_dept_entities(
+                self.app_state.db.as_ref(),
+                self.app_state.cache_service.as_ref(),
+                &dept_uuid, 
+                &schema
+            ).await?;
             entities = entities.add_entities(dept_es, Some(&schema))?;
 
             let dept_id = departments::Entity::find()
@@ -464,19 +448,23 @@ impl UserService {
                 .column(departments::Column::DeptId)
                 .filter(departments::Column::DeptUuid.eq(dept_uuid))
                 .into_tuple::<i32>()
-                .one(&self.app_state.db)
+                .one(self.app_state.db.as_ref())
                 .await?
                 .ok_or(not_found!("Department not found"))?;
             target_dept_id = Some(dept_id);
         }
-
 
         let mut target_group_ids: Option<Vec<i32>> = None;
         if let Some(group_uuids) = &dto.groups {
             if group_uuids.is_empty() {
                 target_group_ids = Some(vec![]);
             } else {
-                let group_es = get_group_entities(&self.app_state.db, group_uuids, &schema).await?;
+                let group_es = get_group_entities(
+                    self.app_state.db.as_ref(),
+                    self.app_state.cache_service.as_ref(),
+                    group_uuids, 
+                    &schema
+                ).await?;
                 entities = entities.add_entities(group_es, Some(&schema))?;
 
                 let group_ids = user_groups::Entity::find()
@@ -484,7 +472,7 @@ impl UserService {
                     .column(user_groups::Column::UserGroupId)
                     .filter(user_groups::Column::UserGroupUuid.is_in(group_uuids))
                     .into_tuple::<i32>()
-                    .all(&self.app_state.db)
+                    .all(self.app_state.db.as_ref())
                     .await?;
 
                 if group_ids.len() != group_uuids.len() {
@@ -494,37 +482,44 @@ impl UserService {
             }
         }
 
-
-        self.app_state.auth_service.check_permission_with_entities(
-            &current_user.uuid,
-            context.clone(),
-            AuthAction::UpdateUser,
-            ResourceType::User(Some(user_uuid.clone())),
-            entities.clone(),
-        ).await?;
-
-        if let Some(dept_uuid) = &dto.dept {
-            self.app_state.auth_service.check_permission_with_entities(
-                &current_user.uuid,
+        self.app_state
+            .auth_service
+            .check_permission_with_entities(
+                &current_user.sub,
                 context.clone(),
                 AuthAction::UpdateUser,
-                ResourceType::Department(Some(dept_uuid.clone())),
+                ResourceType::User(Some(user_uuid.clone())),
                 entities.clone(),
-            ).await?;
+            )
+            .await?;
+
+        if let Some(dept_uuid) = &dto.dept {
+            self.app_state
+                .auth_service
+                .check_permission_with_entities(
+                    &current_user.sub,
+                    context.clone(),
+                    AuthAction::UpdateUser,
+                    ResourceType::Department(Some(dept_uuid.clone())),
+                    entities.clone(),
+                )
+                .await?;
         }
 
         if let Some(group_uuids) = &dto.groups {
             for group_uuid in group_uuids {
-                self.app_state.auth_service.check_permission_with_entities(
-                    &current_user.uuid,
-                    context.clone(),
-                    AuthAction::UpdateUser,
-                    ResourceType::Group(Some(group_uuid.clone())),
-                    entities.clone(),
-                ).await?;
+                self.app_state
+                    .auth_service
+                    .check_permission_with_entities(
+                        &current_user.sub,
+                        context.clone(),
+                        AuthAction::UpdateUser,
+                        ResourceType::Group(Some(group_uuid.clone())),
+                        entities.clone(),
+                    )
+                    .await?;
             }
         }
-
 
         let txn = self.app_state.db.begin().await?;
 
@@ -535,11 +530,21 @@ impl UserService {
             .ok_or_else(|| not_found!("User not found"))?
             .into();
 
-        if let Some(email) = dto.email { user.email = Set(email); }
-        if let Some(username) = dto.username { user.username = Set(username); }
-        if let Some(alias) = dto.alias { user.alias = Set(Some(alias)); }
-        if let Some(phone) = dto.phone { user.phone = Set(Some(phone)); }
-        if let Some(is_active) = dto.is_active { user.is_active = Set(is_active); }
+        if let Some(email) = dto.email {
+            user.email = Set(email);
+        }
+        if let Some(username) = dto.username {
+            user.username = Set(username);
+        }
+        if let Some(alias) = dto.alias {
+            user.alias = Set(Some(alias));
+        }
+        if let Some(phone) = dto.phone {
+            user.phone = Set(Some(phone));
+        }
+        if let Some(is_active) = dto.is_active {
+            user.is_active = Set(is_active);
+        }
 
         if let Some(dept_id) = target_dept_id {
             user.dept_id = Set(dept_id);
@@ -562,7 +567,9 @@ impl UserService {
                         ..Default::default()
                     })
                     .collect();
-                user_group_members::Entity::insert_many(new_members).exec(&txn).await?;
+                user_group_members::Entity::insert_many(new_members)
+                    .exec(&txn)
+                    .await?;
             }
         }
 
@@ -573,16 +580,21 @@ impl UserService {
 
     pub async fn delete_user(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         user_uuid: String,
     ) -> Result<(), AppError> {
         let schema = self.app_state.auth_service.get_schema_copy().await;
-        let user_es = get_user_entities(&self.app_state.db, user_uuid.clone(), &schema).await?;
+        let user_es = get_user_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            user_uuid.clone(), 
+            &schema
+        ).await?;
         self.app_state
             .auth_service
             .check_permission_with_entities(
-                &current_user.uuid,
+                &current_user.sub,
                 context,
                 AuthAction::DeleteUser,
                 ResourceType::User(Some(user_uuid.clone())),
@@ -597,7 +609,7 @@ impl UserService {
                 is_active: Set(false),
                 ..Default::default()
             })
-            .exec(&self.app_state.db)
+            .exec(self.app_state.db.as_ref())
             .await?;
 
         Ok(())
@@ -605,14 +617,14 @@ impl UserService {
 
     pub async fn user_roles(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         user_uuid: String,
     ) -> Result<Vec<UserRoleInfo>, AppError> {
         self.app_state
             .auth_service
             .check_permission(
-                &current_user.uuid,
+                &current_user.sub,
                 context,
                 AuthAction::ViewRole,
                 ResourceType::User(None),
@@ -626,10 +638,9 @@ impl UserService {
             .column(users::Column::UserId)
             .filter(users::Column::UserUuid.eq(&user_uuid))
             .into_tuple::<i32>()
-            .one(&self.app_state.db)
+            .one(self.app_state.db.as_ref())
             .await?
             .ok_or(not_found!("User not found"))?;
-
 
         // 获取直接角色
         let direct_roles = self.get_user_direct_roles(user_id).await?;
@@ -665,7 +676,7 @@ impl UserService {
             .join(JoinType::InnerJoin, roles::Relation::UserRoles.def())
             .filter(user_roles::Column::UserId.eq(user_id))
             .into_tuple::<(String, String)>()
-            .all(&self.app_state.db)
+            .all(self.app_state.db.as_ref())
             .await?
             .into_iter()
             .map(|(uuid, name)| DirectRole {
@@ -688,7 +699,7 @@ impl UserService {
             .join(InnerJoin, user_groups::Relation::UserGroupMembers.def())
             .filter(user_group_members::Column::UserId.eq(user_id))
             .into_tuple::<(String, String, String)>()
-            .all(&self.app_state.db)
+            .all(self.app_state.db.as_ref())
             .await?;
 
         let group_roles = roles
@@ -705,7 +716,7 @@ impl UserService {
 
     pub async fn assign_roles(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         user_uuid: String,
         dto: AssignRoleDto,
@@ -717,34 +728,49 @@ impl UserService {
             .column(users::Column::UserId)
             .filter(users::Column::UserUuid.eq(user_uuid.clone()))
             .into_tuple::<i32>()
-            .one(&self.app_state.db)
+            .one(self.app_state.db.as_ref())
             .await?
             .ok_or_else(|| not_found!(format!("not found user[{}]", user_uuid)))?;
 
-        let target_role_id = roles::Entity::find()
-            .select_only()
-            .column(roles::Column::RoleId)
-            .filter(roles::Column::RoleUuid.eq(dto.role_uuid.clone()))
-            .into_tuple::<i32>()
-            .one(&self.app_state.db)
-            .await?
-            .ok_or_else(|| not_found!(format!("not found role[{}]", dto.role_uuid)))?;
-
-        let user_es = get_user_entities(&self.app_state.db, user_uuid.clone(), &schema).await?;
-        let role_es = get_role_entities(&self.app_state.db, &vec![dto.role_uuid.clone()], &schema).await?;
-
+        let user_es = get_user_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            user_uuid.clone(), 
+            &schema
+        ).await?;
+        let role_es = get_role_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            &dto.role_uuids, 
+            &schema
+        ).await?;
         let merged_es = role_es.add_entities(user_es, Some(&schema))?;
 
-        self.app_state
-            .auth_service
-            .check_permission_with_entities(
-                &current_user.uuid,
-                context,
-                AuthAction::AssignRole,
-                ResourceType::Role(Some(dto.role_uuid)),
-                merged_es,
-            )
-            .await?;
+        let mut target_role_ids = Vec::new();
+
+        for role_uuid in &dto.role_uuids {
+            self.app_state
+                .auth_service
+                .check_permission_with_entities(
+                    &current_user.sub,
+                    context.clone(), // <--- 关键点：克隆 Context
+                    AuthAction::AssignRole,
+                    ResourceType::Role(Some(role_uuid.to_string())),
+                    merged_es.clone(), // <--- 关键点：克隆 Entities
+                )
+                .await?;
+
+            let role_id = roles::Entity::find()
+                .select_only()
+                .column(roles::Column::RoleId)
+                .filter(roles::Column::RoleUuid.eq(role_uuid))
+                .into_tuple::<i32>()
+                .one(self.app_state.db.as_ref())
+                .await?
+                .ok_or_else(|| not_found!(format!("not found role[{}]", role_uuid)))?;
+
+            target_role_ids.push(role_id);
+        }
 
         let txn = self.app_state.db.begin().await?;
 
@@ -753,13 +779,20 @@ impl UserService {
             .exec(&txn)
             .await?;
 
-        user_roles::Entity::insert(user_roles::ActiveModel {
-            user_id: Set(target_user_id),
-            role_id: Set(target_role_id),
-            ..Default::default()
-        })
-        .exec(&txn)
-        .await?;
+        if !target_role_ids.is_empty() {
+            let new_relations: Vec<user_roles::ActiveModel> = target_role_ids
+                .into_iter()
+                .map(|role_id| user_roles::ActiveModel {
+                    user_id: Set(target_user_id),
+                    role_id: Set(role_id),
+                    ..Default::default()
+                })
+                .collect();
+
+            user_roles::Entity::insert_many(new_relations)
+                .exec(&txn)
+                .await?;
+        }
 
         txn.commit().await?;
 
@@ -768,21 +801,30 @@ impl UserService {
 
     pub async fn revoke_roles(
         &self,
-        current_user: CurrentUser,
+        current_user: Claims,
         context: CedarContext,
         user_uuid: UserUUID,
         role_uuid: String,
     ) -> Result<(), AppError> {
         let schema = self.app_state.auth_service.get_schema_copy().await;
-        let role_es =
-            get_role_entities(&self.app_state.db, &vec![role_uuid.clone()], &schema).await?;
-        let user_es = get_user_entities(&self.app_state.db, user_uuid.clone(), &schema).await?;
+        let role_es = get_role_entities(
+            self.app_state.db.as_ref(),
+            self.app_state.cache_service.as_ref(),
+            &vec![role_uuid.clone()], 
+            &schema
+        ).await?;
+        let user_es = get_user_entities(
+            self.app_state.db.as_ref(), 
+            self.app_state.cache_service.as_ref(),
+            user_uuid.clone(), 
+            &schema
+        ).await?;
         let merged_es = role_es.add_entities(user_es, None)?;
 
         self.app_state
             .auth_service
             .check_permission_with_entities(
-                &current_user.uuid,
+                &current_user.sub,
                 context,
                 AuthAction::RevokeRole,
                 ResourceType::User(Some(user_uuid.clone())),
@@ -809,107 +851,9 @@ impl UserService {
                         .to_owned(),
                 ),
             )
-            .exec(&self.app_state.db)
+            .exec(self.app_state.db.as_ref())
             .await?;
 
         Ok(())
     }
-}
-
-pub async fn get_user_entities(
-    db: &DatabaseConnection,
-    user_uuid: UserUUID,
-    schema: &Schema,
-) -> Result<Entities, AppError> {
-
-    // 获取 user_id 和 username
-    let (user_id, username) = users::Entity::find()
-        .select_only()
-        .column(users::Column::UserId)
-        .column(users::Column::Username)
-        .filter(users::Column::UserUuid.eq(user_uuid.clone()))
-        .into_tuple::<(i32, String)>()
-        .one(db)
-        .await?
-        .ok_or(not_found!("User {} not found", user_uuid))?;
-
-    let all_roles = get_role_models_by_user_uuid(db, user_uuid.clone()).await?;
-
-    if all_roles.is_empty() {
-        debug!("User {} has no roles assigned", user_uuid.clone());
-    }
-
-    // 用户所属组
-    let groups = user_groups::Entity::find()
-        .join(InnerJoin, user_groups::Relation::UserGroupMembers.def())
-        .filter(user_group_members::Column::UserId.eq(user_id))
-        .all(db)
-        .await?;
-
-    // 用户所属部门
-    let department = departments::Entity::find()
-        .join(InnerJoin, departments::Relation::Users.def())
-        .filter(users::Column::UserId.eq(user_id))
-        .one(db)
-        .await?;
-
-    // 转换为 CedarEntity
-    let mut entities = HashSet::new();
-    let mut user_parent_uids = HashSet::new();
-
-    if department.is_some() {
-        let department = department.unwrap();
-        // 用户所有的子部门
-        let child_dept_entities = find_descendants_entities(db, department.dept_id).await?;
-        for child_dept_entity in child_dept_entities {
-            let dept_e_uid = child_dept_entity.uid();
-            user_parent_uids.insert(dept_e_uid);
-            entities.insert(child_dept_entity);
-        }
-    };
-
-    for group in groups {
-        let group_eid = EntityId::from_str(&group.user_group_uuid)?;
-        let group_type_name = EntityTypeName::from_str(ENTITY_TYPE_GROUP)?;
-        let group_e_uid = EntityUid::from_type_name_and_id(group_type_name, group_eid);
-
-        let mut attrs = HashMap::new();
-        let name_expr = RestrictedExpression::new_string(group.name);
-        attrs.insert(ENTITY_ATTR_NAME.to_string(), name_expr);
-
-        let parents = HashSet::new();
-        let group_entity = Entity::new(group_e_uid.clone(), attrs, parents)?;
-        entities.insert(group_entity);
-        user_parent_uids.insert(group_e_uid);
-    }
-
-    for role in all_roles {
-        let role_eid = EntityId::from_str(role.role_uuid.to_string().as_str())?;
-        let role_type_name = EntityTypeName::from_str(ENTITY_TYPE_ROLE)?;
-        let role_e_uid = EntityUid::from_type_name_and_id(role_type_name, role_eid);
-
-        let mut attrs = HashMap::new();
-        let name_expr = RestrictedExpression::new_string(role.role_name);
-        attrs.insert(ENTITY_ATTR_NAME.to_string(), name_expr);
-
-        let parents = HashSet::new();
-        let role_entity = Entity::new(role_e_uid.clone(), attrs, parents)?;
-        entities.insert(role_entity);
-        user_parent_uids.insert(role_e_uid);
-    }
-
-    let user_eid = EntityId::from_str(user_uuid.as_str())?;
-    let user_type_name = EntityTypeName::from_str(ENTITY_TYPE_USER)?;
-    let user_e_uid = EntityUid::from_type_name_and_id(user_type_name, user_eid);
-    let mut attrs = HashMap::new();
-
-    let name_expr = RestrictedExpression::new_string(username);
-    attrs.insert(ENTITY_ATTR_NAME.to_string(), name_expr);
-    let user_entity = Entity::new(user_e_uid, attrs, user_parent_uids)?;
-    entities.insert(user_entity);
-
-    let verified_entities = Entities::from_entities(entities, Some(schema))?;
-    let entities_json = entities2json(&verified_entities)?;
-    debug!("User:{}; Entities Json: {}", user_uuid, entities_json);
-    Ok(verified_entities)
 }

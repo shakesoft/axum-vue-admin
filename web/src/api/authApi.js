@@ -8,7 +8,7 @@ export const authApi = {
      * @returns {Promise<object>} - 包含 token 等信息的响应
      */
     login: (credentials) => {
-        return http.post('/auth/login', credentials);
+        return http.post('/auth/basic/login', credentials);
     },
 
     /**
@@ -16,7 +16,7 @@ export const authApi = {
      * @returns {Promise<any>}
      */
     logout: () => {
-        return http.post('/auth/logout');
+        return http.post('/auth/basic/logout');
     },
 
     /**
@@ -24,7 +24,7 @@ export const authApi = {
      * @returns {Promise<object>} - 包含新 token 的响应
      */
     refreshToken: () => {
-        return http.post('/auth/refresh_token');
+        return http.post('/auth/basic/refresh_token');
     },
 
     /**

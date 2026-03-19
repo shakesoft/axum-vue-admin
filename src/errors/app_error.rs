@@ -1,20 +1,25 @@
-use std::num::ParseIntError;
-use anyhow::anyhow;
 use crate::schemas::response::ApiResponse;
 use axum::{
-    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
+    Json,
 };
+use jsonwebtoken;
+use std::error;
+use std::num::ParseIntError;
+use std::str::Utf8Error;
+use openssl::base64;
+use tracing::error;
 
 #[derive(Debug)]
 pub enum ErrorType {
-    BadRequest,    // 400 - 客户端请求错误
-    Unauthorized,  // 401 - 未认证
-    Forbidden,     // 403 - 无权限
-    NotFound,      // 404 - 资源不存在
-    Conflict,      // 409 - 资源冲突
-    InternalServerError, // 500 - 服务器内部错误
+    BadRequest,           // 400 - 客户端请求错误
+    Unauthorized,         // 401 - 未认证
+    Forbidden,            // 403 - 无权限
+    NotFound,             // 404 - 资源不存在
+    Conflict,             // 409 - 资源冲突
+    InternalServerError,  // 500 - 服务器内部错误
+    TokenValidationError, // 500 SSO认证错误
 }
 
 // 自定义错误结构
@@ -64,6 +69,13 @@ impl AppError {
         Self::new(ErrorType::Conflict, err.into())
     }
 
+    pub fn token_validation_error<E>(err: E) -> Self
+    where
+        E: Into<anyhow::Error>,
+    {
+        Self::new(ErrorType::TokenValidationError, err.into())
+    }
+
     pub fn internal_server_error<E>(err: E) -> Self
     where
         E: Into<anyhow::Error>,
@@ -79,6 +91,7 @@ impl AppError {
             ErrorType::NotFound => StatusCode::NOT_FOUND,
             ErrorType::Conflict => StatusCode::CONFLICT,
             ErrorType::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorType::TokenValidationError => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 }
@@ -108,26 +121,43 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(value: std::io::Error) -> Self {
+        Self::internal_server_error(value)
+    }
+}
+
 // 数据库错误默认为内部服务器错误
 impl From<sea_orm::DbErr> for AppError {
     fn from(err: sea_orm::DbErr) -> Self {
         tracing::error!("Database error: {:?}", err);
-        match &err {
-            sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx_err)) => {
-                match sqlx_err {
-                    sqlx::Error::Database(db_err) => {
-                        if db_err.is_unique_violation() {
-                            return Self::conflict(anyhow::Error::from(err));
-                        }
-                        if db_err.is_foreign_key_violation() {
-                            return Self::not_found(anyhow::Error::from(err));
-                        }
-                    }
-                    _ => {}
+        let sqlx_error = match &err {
+            sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(e)) => Some(e),
+            sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(e)) => Some(e),
+            _ => None,
+        };
+
+        if let Some(sqlx_err) = sqlx_error {
+            if let sqlx::Error::Database(db_err) = sqlx_err {
+                if db_err.is_unique_violation() {
+                    return Self::conflict(anyhow::Error::msg("The data already exists."));
+                }
+
+                if db_err.is_foreign_key_violation() {
+                    return Self::not_found(anyhow::Error::msg(
+                        "The associated resource does not exist.",
+                    ));
                 }
             }
-            _ => return Self::internal_server_error(err),
         }
+
+        Self::internal_server_error(anyhow::Error::from(err))
+    }
+}
+
+impl From<jsonwebtoken::errors::Error> for AppError {
+    fn from(err: jsonwebtoken::errors::Error) -> Self {
+        error!("jsonwebtoken error: {:?}", err);
         Self::internal_server_error(anyhow::Error::from(err))
     }
 }
@@ -247,11 +277,10 @@ impl From<ParseIntError> for AppError {
     }
 }
 
-// 从anyhow::Error转换（默认为内部服务器错误）
-impl From<anyhow::Error> for AppError {
-    fn from(err: anyhow::Error) -> Self {
 
-        Self::internal_server_error(err)
+impl From<std::string::FromUtf8Error> for AppError {
+    fn from(value: std::string::FromUtf8Error) -> Self {
+        Self::internal_server_error(anyhow::Error::from(value))
     }
 }
 
@@ -282,7 +311,6 @@ impl IntoResponse for AppError {
         }
     }
 }
-
 
 #[macro_export]
 macro_rules! bad_request {
@@ -332,4 +360,24 @@ macro_rules! conflict {
     ($fmt:expr, $($arg:tt)*) => {
         AppError::conflict(anyhow::anyhow!($fmt, $($arg)*))
     };
+}
+
+#[macro_export]
+macro_rules! internal_server_error {
+    ($msg:expr) => {
+        AppError::internal_server_error(anyhow::anyhow!($msg))
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        AppError::internal_server_error(anyhow::anyhow!($fmt, $($arg)*))
+    }
+}
+
+#[macro_export]
+macro_rules! token_validation_error {
+    ($msg:expr) => {
+        AppError::token_validation_error(anyhow::anyhow!($msg))
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        AppError::token_validation_error(anyhow::anyhow!($fmt, $($arg)*))
+    }
 }

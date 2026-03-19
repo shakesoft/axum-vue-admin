@@ -2,7 +2,6 @@
 
 use sea_orm::entity::prelude::*;
 
-
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "departments")]
 pub struct Model {
@@ -13,7 +12,7 @@ pub struct Model {
     pub updated_at: DateTimeUtc,
     pub name: String,
     pub desc: Option<String>,
-    #[sea_orm(custom_type="i8")]
+    #[sea_orm(custom_type = "i8")]
     pub is_deleted: bool,
     pub order: i32,
     pub parent_id: i32,

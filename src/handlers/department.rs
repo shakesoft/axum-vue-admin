@@ -1,17 +1,15 @@
-use crate::{
-    errors::app_error::AppError,
-    services::department::DepartmentService,
-};
+use crate::config::openapi::DEPARTMENT_TAG;
+use crate::schemas::auth::Claims;
+use crate::schemas::cedar_policy::CedarContext;
+use crate::schemas::department::{CreateDepartmentDto, DepartmentResponse, DeptTreeNode};
+use crate::schemas::{response::ApiResponse, user::UserResponse};
+use crate::{errors::app_error::AppError, services::department::service::DepartmentService};
+use axum::response::IntoResponse;
 use axum::{
     extract::{Json, Path, State},
     http::StatusCode,
     Extension,
 };
-use axum::response::IntoResponse;
-use crate::config::openapi::DEPARTMENT_TAG;
-use crate::schemas::{auth::CurrentUser, response::ApiResponse, user::UserResponse};
-use crate::schemas::cedar_policy::CedarContext;
-use crate::schemas::department::{CreateDepartmentDto, DepartmentResponse, DeptTreeNode};
 
 #[utoipa::path(get, path = "",
     responses((status = 200, body = Vec<DeptTreeNode>),),
@@ -21,14 +19,11 @@ use crate::schemas::department::{CreateDepartmentDto, DepartmentResponse, DeptTr
     ),
 )]
 pub async fn list_departments(
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     State(service): State<DepartmentService>,
 ) -> Result<ApiResponse<Vec<DeptTreeNode>>, AppError> {
-    let departments = service.list_departments(
-        current_user,
-        context,
-    ).await?;
+    let departments = service.list_departments(current_user, context).await?;
     Ok(ApiResponse::success(departments, StatusCode::OK))
 }
 
@@ -45,14 +40,13 @@ pub async fn list_departments(
 )]
 pub async fn create_department(
     State(service): State<DepartmentService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(params): Json<CreateDepartmentDto>,
 ) -> Result<ApiResponse<DepartmentResponse>, AppError> {
-    let department = service.create_department(
-        current_user,
-        context,
-        params).await?;
+    let department = service
+        .create_department(current_user, context, params)
+        .await?;
     Ok(ApiResponse::success(department, StatusCode::CREATED))
 }
 
@@ -73,14 +67,13 @@ pub async fn create_department(
 pub async fn update_department(
     Path(dept_uuid): Path<String>,
     State(service): State<DepartmentService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<CreateDepartmentDto>,
 ) -> Result<ApiResponse<DepartmentResponse>, AppError> {
-    let department = service.update_department(
-        current_user,
-        context,
-        dept_uuid, dto).await?;
+    let department = service
+        .update_department(current_user, context, dept_uuid, dto)
+        .await?;
     Ok(ApiResponse::success(department, StatusCode::OK))
 }
 
@@ -103,13 +96,12 @@ pub async fn update_department(
 pub async fn delete_department(
     Path(dept_uuid): Path<String>,
     State(service): State<DepartmentService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.delete_department(
-        current_user,
-        context,
-        dept_uuid).await?;
+    service
+        .delete_department(current_user, context, dept_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -131,12 +123,11 @@ pub async fn delete_department(
 pub async fn departments_users(
     Path(dept_uuid): Path<String>,
     State(service): State<DepartmentService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<ApiResponse<Vec<UserResponse>>, AppError> {
-    let users = service.department_users(
-        current_user,
-        context,
-        dept_uuid).await?;
+    let users = service
+        .department_users(current_user, context, dept_uuid)
+        .await?;
     Ok(ApiResponse::success(users, StatusCode::OK))
 }

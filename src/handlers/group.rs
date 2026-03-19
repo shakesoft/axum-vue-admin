@@ -1,16 +1,22 @@
 use crate::config::openapi::GROUP_TAG;
+use crate::schemas::auth::{Claims};
+use crate::schemas::cedar_policy::CedarContext;
 use crate::schemas::{
-    groups::{CreateGroupDto, AssignUsersDto, GroupResponse, QueryParams, GroupRoleResponse,
-             AssignRolesDto},
+    groups::{
+        AssignRolesDto, AssignUsersDto, CreateGroupDto, GroupResponse, GroupRoleResponse,
+        QueryParams,
+    },
     paginated::PaginatedApiResponse,
     response::ApiResponse,
 };
 use crate::{errors::app_error::AppError, services::groups::GroupService};
-use axum::{extract::{Json, Path, Query, State}, http::StatusCode, response::IntoResponse, Extension};
+use axum::{
+    extract::{Json, Path, Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Extension,
+};
 use validator::Validate;
-use crate::handlers::group;
-use crate::schemas::auth::CurrentUser;
-use crate::schemas::cedar_policy::CedarContext;
 
 #[utoipa::path(
     get,
@@ -25,19 +31,19 @@ use crate::schemas::cedar_policy::CedarContext;
 pub async fn list_groups(
     State(service): State<GroupService>,
     Query(params): Query<QueryParams>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
     params.validate()?;
-    let (groups, total) = service.list_groups(
-        current_user,
-        context,
-        params.clone()).await?;
-    Ok(PaginatedApiResponse::success(groups,
-                                     total,
-                                     params.page,
-                                     params.page_size,
-                                     StatusCode::OK
+    let (groups, total) = service
+        .list_groups(current_user, context, params.clone())
+        .await?;
+    Ok(PaginatedApiResponse::success(
+        groups,
+        total,
+        params.page,
+        params.page_size,
+        StatusCode::OK,
     ))
 }
 
@@ -54,15 +60,12 @@ pub async fn list_groups(
 )]
 pub async fn create_group(
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(payload): Json<CreateGroupDto>,
 ) -> Result<ApiResponse<GroupResponse>, AppError> {
     payload.validate()?;
-    let group = service.create_group(
-        current_user,
-        context,
-        payload).await?;
+    let group = service.create_group(current_user, context, payload).await?;
     Ok(ApiResponse::success(group, StatusCode::CREATED))
 }
 
@@ -82,13 +85,10 @@ pub async fn create_group(
 pub async fn get_group(
     Path(group_uuid): Path<String>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let group = service.get_group(
-        current_user,
-        context,
-        group_uuid).await?;
+    let group = service.get_group(current_user, context, group_uuid).await?;
     Ok(ApiResponse::success(group, StatusCode::OK))
 }
 
@@ -109,15 +109,13 @@ pub async fn get_group(
 pub async fn update_group(
     Path(group_uuid): Path<String>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<CreateGroupDto>,
 ) -> Result<ApiResponse<GroupResponse>, AppError> {
-    let group = service.update_group(
-        current_user,
-        context,
-        group_uuid,
-        dto).await?;
+    let group = service
+        .update_group(current_user, context, group_uuid, dto)
+        .await?;
     Ok(ApiResponse::success(group, StatusCode::OK))
 }
 
@@ -140,13 +138,12 @@ pub async fn update_group(
 pub async fn delete_group(
     Path(group_uuid): Path<String>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.delete_group(
-        current_user,
-        context,
-        group_uuid).await?;
+    service
+        .delete_group(current_user, context, group_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -166,18 +163,15 @@ pub async fn delete_group(
 pub async fn assign_users(
     Path(group_uuid): Path<String>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<AssignUsersDto>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.assign_users(
-        current_user,
-        context,
-        group_uuid,
-        dto).await?;
+    service
+        .assign_users(current_user, context, group_uuid, dto)
+        .await?;
     Ok(StatusCode::CREATED)
 }
-
 
 #[utoipa::path(
     delete,
@@ -196,17 +190,14 @@ pub async fn assign_users(
 pub async fn revoke_users(
     Path((group_uuid, user_uuid)): Path<(String, String)>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
-    Extension(context): Extension<CedarContext>
+    Extension(current_user): Extension<Claims>,
+    Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.revoke_user(
-        current_user,
-        context,
-        group_uuid,
-        user_uuid).await?;
+    service
+        .revoke_user(current_user, context, group_uuid, user_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
-
 
 #[utoipa::path(
     post,
@@ -224,16 +215,13 @@ pub async fn revoke_users(
 pub async fn assign_roles(
     Path(group_uuid): Path<String>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<AssignRolesDto>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.assign_roles(
-        current_user,
-        context,
-        group_uuid,
-        dto
-    ).await?;
+    service
+        .assign_roles(current_user, context, group_uuid, dto)
+        .await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -253,18 +241,14 @@ pub async fn assign_roles(
 pub async fn revoke_roles(
     Path((group_uuid, role_uuid)): Path<(String, String)>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
-    Extension(context): Extension<CedarContext>
+    Extension(current_user): Extension<Claims>,
+    Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.revoke_roles(
-        current_user,
-        context,
-        group_uuid,
-        role_uuid
-    ).await?;
+    service
+        .revoke_roles(current_user, context, group_uuid, role_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
-
 
 #[utoipa::path(
     get,
@@ -282,12 +266,11 @@ pub async fn revoke_roles(
 pub async fn get_group_roles(
     Path(group_uuid): Path<String>,
     State(service): State<GroupService>,
-    Extension(current_user): Extension<CurrentUser>,
-    Extension(context): Extension<CedarContext>
+    Extension(current_user): Extension<Claims>,
+    Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let group_roles = service.get_group_roles(
-        current_user,
-        context,
-        group_uuid).await?;
+    let group_roles = service
+        .get_group_roles(current_user, context, group_uuid)
+        .await?;
     Ok(ApiResponse::success(group_roles, StatusCode::OK))
 }

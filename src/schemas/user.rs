@@ -32,7 +32,7 @@ pub struct QueryParams {
 
 #[derive(Debug, Serialize, Deserialize, Validate, ToSchema)]
 pub struct AssignRoleDto {
-    pub role_uuid: String,
+    pub role_uuids: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -75,7 +75,8 @@ pub struct DeptResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, FromQueryResult)]
 pub struct GroupResponse {
-    pub uuid: String,
+    #[serde(rename = "uuid")]
+    pub user_group_uuid: String,
     pub name: String,
 }
 #[derive(Default, Debug, Serialize, Deserialize, ToSchema)]
@@ -120,15 +121,13 @@ pub struct UserDeptResponse {
     name: String,
 }
 
-
-
 // 用户角色信息结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRoleInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
     pub role_name: String,
-    pub source: String,      // "direct" 或 "group"
+    pub source: String, // "direct" 或 "group"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_name: Option<String>, // 如果来源是组，则包含组名
 }

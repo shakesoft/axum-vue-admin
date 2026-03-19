@@ -1,9 +1,9 @@
-use crate::services::user::UserService;
+use crate::services::user::service::UserService;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::handlers::user;
 use crate::config::state::AppState;
+use crate::handlers::user;
 
 pub fn protected_routes(app_state: AppState) -> OpenApiRouter {
     let service = UserService::new(app_state);

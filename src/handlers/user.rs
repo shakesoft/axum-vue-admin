@@ -1,26 +1,20 @@
 use axum::extract::Query;
 use axum::{
-    extract::{Path, State, Extension},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
 };
-use clap::builder::Str;
 use validator::Validate;
 
+use crate::schemas::auth::Claims;
+use crate::schemas::cedar_policy::CedarContext;
 use crate::schemas::paginated::PaginatedApiResponse;
 use crate::schemas::response::ApiResponse;
 use crate::schemas::user::{
-    AssignRoleDto, CreateUserDto, QueryParams, UpdateUserDto,
-    UserResponse, UserRoleResponse,
+    AssignRoleDto, CreateUserDto, QueryParams, UpdateUserDto, UserResponse, UserRoleResponse,
 };
-use crate::{
-    config::openapi::USER_TAG,
-    errors::app_error::AppError,
-    services::user::UserService,
-};
-use crate::schemas::auth::CurrentUser;
-use crate::schemas::cedar_policy::CedarContext;
+use crate::{config::openapi::USER_TAG, errors::app_error::AppError, services::user::service::UserService};
 
 #[utoipa::path(get, path = "",
     params(QueryParams),
@@ -32,16 +26,14 @@ use crate::schemas::cedar_policy::CedarContext;
 )]
 pub async fn list_users(
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Query(params): Query<QueryParams>,
 ) -> Result<impl IntoResponse, AppError> {
     params.validate()?;
-    let (users, total) = service.list_users(
-        current_user,
-        context,
-        params.clone()
-    ).await?;
+    let (users, total) = service
+        .list_users(current_user, context, params.clone())
+        .await?;
     Ok(PaginatedApiResponse::success(
         users,
         total,
@@ -69,13 +61,10 @@ pub async fn list_users(
 pub async fn get_user(
     Path(user_uuid): Path<String>,
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let user = service.get_user(
-        current_user,
-        context,
-        user_uuid).await?;
+    let user = service.get_user(current_user, context, user_uuid).await?;
     Ok(ApiResponse::success(user, StatusCode::OK))
 }
 
@@ -92,15 +81,12 @@ pub async fn get_user(
 )]
 pub async fn create_user(
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<CreateUserDto>,
 ) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    let user = service.create_user(
-        current_user,
-        context,
-        dto).await?;
+    let user = service.create_user(current_user, context, dto).await?;
     Ok(ApiResponse::success(user, StatusCode::CREATED))
 }
 
@@ -121,15 +107,14 @@ pub async fn create_user(
 pub async fn update_user(
     Path(user_uuid): Path<String>,
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<UpdateUserDto>,
 ) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    let user = service.update_user(
-        current_user,
-        context,
-        user_uuid, dto).await?;
+    let user = service
+        .update_user(current_user, context, user_uuid, dto)
+        .await?;
     Ok(ApiResponse::success(user, StatusCode::OK))
 }
 
@@ -148,13 +133,12 @@ pub async fn update_user(
 pub async fn delete_user(
     Path(user_uuid): Path<String>,
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.delete_user(
-        current_user,
-        context,
-        user_uuid).await?;
+    service
+        .delete_user(current_user, context, user_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -173,13 +157,10 @@ pub async fn delete_user(
 pub async fn user_roles(
     Path(user_uuid): Path<String>,
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let roles = service.user_roles(
-        current_user,
-        context,
-        user_uuid).await?;
+    let roles = service.user_roles(current_user, context, user_uuid).await?;
     Ok(ApiResponse::success(roles, StatusCode::OK))
 }
 
@@ -199,14 +180,13 @@ pub async fn user_roles(
 pub async fn assign_roles(
     Path(user_uuid): Path<String>,
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Json(dto): Json<AssignRoleDto>, // Json提取器需要放在最后，负责会报错。
 ) -> Result<impl IntoResponse, AppError> {
-    service.assign_roles(
-        current_user,
-        context,
-        user_uuid, dto).await?;
+    service
+        .assign_roles(current_user, context, user_uuid, dto)
+        .await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -226,13 +206,11 @@ pub async fn assign_roles(
 pub async fn revoke_roles(
     Path((user_uuid, role_uuid)): Path<(String, String)>,
     State(service): State<UserService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    service.revoke_roles(
-        current_user,
-        context,
-        user_uuid,
-        role_uuid).await?;
+    service
+        .revoke_roles(current_user, context, user_uuid, role_uuid)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

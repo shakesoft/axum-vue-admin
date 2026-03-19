@@ -9,7 +9,6 @@ pub struct ForgotPasswordDto {
     pub language: String,
 }
 
-
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct ResetPasswordDto {
     #[serde(alias = "newPassword")]

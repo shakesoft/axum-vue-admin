@@ -5,11 +5,11 @@ use utoipa_axum::routes;
 
 use crate::{handlers::auth};
 use crate::config::state::AppState;
-use crate::services::auth::AuthService;
+use crate::services::auth::basic::BasicAuthService;
 
 
 pub fn public_routes(app_state: AppState) -> OpenApiRouter {
-    let service = AuthService::new(app_state);
+    let service = BasicAuthService::new(app_state);
     OpenApiRouter::new()
         .routes(routes!(auth::login))
         .routes(routes!(auth::refresh_token))
@@ -17,7 +17,7 @@ pub fn public_routes(app_state: AppState) -> OpenApiRouter {
 }
 
 pub fn protected_routes(app_state: AppState) -> OpenApiRouter {
-    let service = AuthService::new(app_state);
+    let service = BasicAuthService::new(app_state);
     OpenApiRouter::new()
         .routes(routes!(auth::logout))
         .with_state(service)

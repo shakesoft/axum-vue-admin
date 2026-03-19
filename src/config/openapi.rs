@@ -1,6 +1,6 @@
 use utoipa::{
-    Modify, OpenApi,
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+    Modify, OpenApi,
 };
 
 pub const USER_TAG: &str = "User";
@@ -21,6 +21,10 @@ pub const ROBOT_HISTORY: &str = "RobotHistory";
 
 pub const ROBOT_CLUSTER: &str = "RobotCluster";
 
+pub const DASHBOARD_TAG: &str = "DashBoard";
+
+pub const ISSUES_TAG: &str = "Issues";
+
 #[derive(OpenApi)]
 #[openapi(
     tags(
@@ -31,6 +35,8 @@ pub const ROBOT_CLUSTER: &str = "RobotCluster";
         (name = DEPARTMENT_TAG, description = "Department API endpoints"),
         (name = ME_TAG, description = "User Profile API endpoints"),
         (name = CEDAR_POLICY_TAG, description = "Cedar Policy API endpoints"),
+        (name = DASHBOARD_TAG, description = "DashBoard API endpoints"),
+        (name = ISSUES_TAG, description = "Issues API endpoints"),
     ),
     modifiers(&SecurityAddon),
     security(

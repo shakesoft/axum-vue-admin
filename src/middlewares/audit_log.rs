@@ -1,14 +1,14 @@
 use crate::config::state::AppState;
 use crate::errors::app_error::AppError;
-use crate::schemas::auth::CurrentUser;
+use crate::schemas::auth::{Claims};
 use crate::services::audit_log::AuditLogService;
 use axum::response::Response;
-use axum::{Extension, extract::Request, extract::State, middleware::Next};
+use axum::{extract::Request, extract::State, middleware::Next, Extension};
 use tokio::time::Instant;
 
 pub async fn handle_audit_log_middleware(
     State(state): State<AppState>,
-    Extension(current_user): Extension<Option<CurrentUser>>,
+    Extension(current_user): Extension<Option<Claims>>,
     request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
@@ -23,7 +23,7 @@ pub async fn handle_audit_log_middleware(
     let status = response.status().as_u16() as i32;
 
     let user_id = if let Some(user) = current_user {
-        user.uuid
+        user.sub
     } else {
         "0".to_string()
     };

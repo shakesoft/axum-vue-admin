@@ -3,6 +3,8 @@
 pub mod prelude;
 
 pub mod auditlog;
+pub mod cedar_policy_set;
+pub mod cedar_schema;
 pub mod cluster_config;
 pub mod departments;
 pub mod group_roles;
@@ -12,6 +14,5 @@ pub mod user_group_members;
 pub mod user_groups;
 pub mod user_roles;
 pub mod users;
-pub mod cedar_policy_set;
-pub mod cedar_schema;
+
 pub mod template_links;

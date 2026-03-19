@@ -2,8 +2,8 @@ use crate::services::sse::SSEService;
 use axum::routing::any;
 use utoipa_axum::router::OpenApiRouter;
 
-use crate::handlers::sse;
 use crate::config::state::AppState;
+use crate::handlers::sse;
 
 pub fn protected_routes(app_state: AppState) -> OpenApiRouter {
     let service = SSEService::new(app_state);

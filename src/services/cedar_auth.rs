@@ -1,15 +1,19 @@
-use std::collections::HashMap;
-use std::str::FromStr;
+use crate::common::cedar_utils::{
+    AuthAction, AuthorizationBuilder, ResourceType, 
+};
+use crate::common::entities::{USER_ENTITIES_CACHE_PREFIX, POLICIES_AND_TEMPLATES_CACHE_KEY,
+                              TEMPLATE_LINKS_CACHE_KEY};
 use crate::errors::app_error::AppError;
-use crate::services::cache::CacheService;
-use cedar_policy::{Authorizer, Decision, Entities, PolicySet, Request, Schema, SlotId};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{info, warn, instrument, debug, error};
 use crate::forbidden;
 use crate::schemas::cedar_policy::{CedarContext, TemplateLinkRecord};
 use crate::schemas::user::UserUUID;
-use crate::utils::cedar_utils::{AuthAction, AuthorizationBuilder, ResourceType, POLICIES_AND_TEMPLATES_CACHE_KEY, TEMPLATE_LINKS_CACHE_KEY, USER_ENTITIES_CACHE_PREFIX};
+use crate::services::cache::CacheService;
+use cedar_policy::{Authorizer, Decision, Entities, PolicySet, Request, Schema, SlotId};
+use std::collections::HashMap;
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, instrument, warn};
 
 #[derive(Clone)]
 pub struct CedarAuthService {
@@ -19,10 +23,7 @@ pub struct CedarAuthService {
 }
 
 impl CedarAuthService {
-    pub fn new(
-        cache_service: Arc<CacheService>,
-        schema: Schema,
-    ) -> Self {
+    pub fn new(cache_service: Arc<CacheService>, schema: Schema) -> Self {
         tokio::spawn({
             let cache_service = cache_service.clone();
             let schema = schema.clone();
@@ -84,15 +85,18 @@ impl CedarAuthService {
 
         let user_entities = self
             .cache_service
-            .get_entities(cache_key)
+            .get_entities(cache_key.as_str())
             .await?
-            .ok_or_else(||forbidden!(format!("UserID[{}] Entities Not Found", user_id)))?;
+            .ok_or_else(|| forbidden!(format!("UserID[{}] Entities Not Found", user_id)))?;
 
-
-        let mut effective_policies = self.get_policies_and_templates_from_cache().await?
+        let mut effective_policies = self
+            .get_policies_and_templates_from_cache()
+            .await?
             .unwrap_or_else(PolicySet::new);
 
-        let link_records = self.get_template_link_records_from_cache().await?
+        let link_records = self
+            .get_template_link_records_from_cache()
+            .await?
             .unwrap_or_default();
 
         if !link_records.is_empty() {
@@ -115,36 +119,39 @@ impl CedarAuthService {
         // debug!("effective_policies: {}", effective_policies);
         // 合并资源实体
         let schema = self.schema.read().await;
-        let combined_entities = user_entities.add_entities(
-            resource_entities,
-            Some(&schema),
-        )?;
+        let combined_entities = user_entities.add_entities(resource_entities, Some(&schema))?;
         // debug!("combined entities: {:?}", combined_entities);
         // 执行授权检查
-        let response = self
-            .authorizer
-            .is_authorized(request, &effective_policies, &combined_entities);
-
+        let response =
+            self.authorizer
+                .is_authorized(request, &effective_policies, &combined_entities);
 
         match response.decision() {
             Decision::Allow => {
                 for policy_id in response.diagnostics().reason() {
                     if let Some(policy) = &effective_policies.policy(policy_id) {
-                        debug!("UserID:{} 请求放行，原因：{:#?}",
+                        debug!(
+                            "UserID:{} 请求放行，原因：{:#?}",
                             user_id,
-                            policy.annotation("annotation")
-                            .unwrap_or("没有设置 @annotation"));
+                            policy
+                                .annotation("annotation")
+                                .unwrap_or("没有设置 @annotation")
+                        );
                     }
                 }
                 Ok(true)
-            },
+            }
             Decision::Deny => {
                 for policy_id in response.diagnostics().reason() {
                     if let Some(policy) = &effective_policies.policy(policy_id) {
-                        debug!("UserID:{} 请求拒绝，原因：{:#?}",
+                        debug!(
+                            "UserID:{} 请求拒绝，原因：{:#?}",
                             user_id,
-                            policy.annotation("annotation").unwrap_or("没有设置 @annotation"));
-                        return Err(forbidden!("access denied"))
+                            policy
+                                .annotation("annotation")
+                                .unwrap_or("没有设置 @annotation")
+                        );
+                        return Err(forbidden!("access denied"));
                     }
                 }
 
@@ -157,8 +164,14 @@ impl CedarAuthService {
         }
     }
 
-    pub async fn get_policies_and_templates_from_cache(&self) -> Result<Option<PolicySet>, AppError> {
-        if let Some(policy_string) = self.cache_service.get_cache(POLICIES_AND_TEMPLATES_CACHE_KEY).await? {
+    pub async fn get_policies_and_templates_from_cache(
+        &self,
+    ) -> Result<Option<PolicySet>, AppError> {
+        if let Some(policy_string) = self
+            .cache_service
+            .get_cache(POLICIES_AND_TEMPLATES_CACHE_KEY)
+            .await?
+        {
             let policy_set = PolicySet::from_str(&policy_string)?;
             Ok(Some(policy_set))
         } else {
@@ -166,8 +179,14 @@ impl CedarAuthService {
         }
     }
 
-    pub async fn get_template_link_records_from_cache(&self) -> Result<Option<Vec<TemplateLinkRecord>>, AppError> {
-        if let Some(json_str) = self.cache_service.get_cache(TEMPLATE_LINKS_CACHE_KEY).await? {
+    pub async fn get_template_link_records_from_cache(
+        &self,
+    ) -> Result<Option<Vec<TemplateLinkRecord>>, AppError> {
+        if let Some(json_str) = self
+            .cache_service
+            .get_cache(TEMPLATE_LINKS_CACHE_KEY)
+            .await?
+        {
             let records: Vec<TemplateLinkRecord> = serde_json::from_str(&json_str)?;
             Ok(Some(records))
         } else {
@@ -175,14 +194,24 @@ impl CedarAuthService {
         }
     }
 
-    pub async fn update_policies_and_templates_in_cache(&self, new_set: &PolicySet) -> Result<(), AppError> {
+    pub async fn update_policies_and_templates_in_cache(
+        &self,
+        new_set: &PolicySet,
+    ) -> Result<(), AppError> {
         let policy_string = new_set.to_string();
-        self.cache_service.set_cache(POLICIES_AND_TEMPLATES_CACHE_KEY.to_string(), &policy_string, None).await
+        self.cache_service
+            .set_cache(POLICIES_AND_TEMPLATES_CACHE_KEY, &policy_string, None)
+            .await
     }
 
-    pub async fn update_template_link_records_in_cache(&self, records: &[TemplateLinkRecord]) -> Result<(), AppError> {
+    pub async fn update_template_link_records_in_cache(
+        &self,
+        records: &[TemplateLinkRecord],
+    ) -> Result<(), AppError> {
         let json_str = serde_json::to_string(records)?;
-        self.cache_service.set_cache(TEMPLATE_LINKS_CACHE_KEY.to_string(), &json_str, None).await
+        self.cache_service
+            .set_cache(TEMPLATE_LINKS_CACHE_KEY, &json_str, None)
+            .await
     }
 
     pub async fn update_schema(&self, new_schema: Schema) {

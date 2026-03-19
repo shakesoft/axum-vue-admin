@@ -1,6 +1,11 @@
 // # 认证配置（JWT、SSO等）
 
-pub static JWT_SECRET: &str = "3488a63e1765035d386f05409663f55c83bfae3b3c61a932744b20ad14244dcf";
+pub const CSRF_SECRET: &str = "cc580ebe0a383d8ad8d180acdf69c16c793288b5e3e48a33690f82735a36e551";
+pub static ACCESS_TOKEN_SECRET: &str =
+    "3488a63e1765035d386f05409663f55c83bfae3b3c61a932744b20ad14244dcf";
+pub const REFRESH_TOKEN_SECRET: &str =
+    "bc15e5644c71750ae12c2acb9678c2602f4d9b35cb1ae215bcadcfa66c6c734b";
+
 pub static ACCESS_TOKEN_EXPIRATION: i64 = 900; // 秒 15分钟
 
 pub static REFRESH_TOKEN_EXPIRATION: i64 = 604800; // 秒 七天

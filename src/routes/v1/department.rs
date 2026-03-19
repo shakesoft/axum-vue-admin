@@ -1,5 +1,5 @@
-use crate::{services::department::DepartmentService};
 use crate::config::state::AppState;
+use crate::services::department::service::DepartmentService;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 

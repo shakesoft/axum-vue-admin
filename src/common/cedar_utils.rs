@@ -1,36 +1,10 @@
 use crate::errors::app_error::AppError;
-use crate::schemas::auth::CurrentUser;
-use crate::schemas::cedar_policy::CedarContext;
-use cedar_policy::{Context, Entities, EntityUid, Request};
-use serde_json::{json};
-use std::str::FromStr;
-use tracing::log::debug;
 use crate::forbidden;
+use crate::schemas::cedar_policy::CedarContext;
 use crate::schemas::user::UserUUID;
-// Entities 缓存用的key前缀
-
-pub const USER_ENTITIES_CACHE_PREFIX: &str = "user_entities";
-
-// Policies 缓存key
-pub const POLICIES_AND_TEMPLATES_CACHE_KEY: &str = "cedar:policies_and_templates";
-pub const TEMPLATE_LINKS_CACHE_KEY: &str = "cedar:template_links";
-
-
-// Cedar 使用的常量
-const  APPLICATION_ENTITY_UID: &str = r#"Application::"VueAxumAdmin""#;
-pub const  ENTITY_TYPE_USER: &str = "User";
-pub const  ENTITY_TYPE_GROUP: &str = "Group";
-pub const  ENTITY_TYPE_ROLE: &str = "Role";
-pub const  ENTITY_TYPE_DEPARTMENT: &str = "Department";
-
-pub const  ENTITY_TYPE_POLICY: &str = "Policy";
-
-pub const  ENTITY_TYPE_ROBOT: &str = "Robot";
-pub const  ENTITY_TYPE_ROBOT_ACCOUNT: &str = "RobotAccount";
-
-pub const  ENTITY_ATTR_NAME: &str = "name";
-pub const ENTITY_ATTR_OWNERS: &str = "owners";
-
+use cedar_policy::{Context, Entities, EntityUid, Request};
+use serde_json::json;
+use std::str::FromStr;
 
 
 /// 授权操作定义
@@ -40,6 +14,7 @@ pub enum AuthAction {
     CreateUser,
     UpdateUser,
     DeleteUser,
+    ListDepartment,
     ViewDepartment,
     ViewDepartmentUsers,
     CreateDepartment,
@@ -72,6 +47,7 @@ impl AuthAction {
             AuthAction::CreateUser => r#"Action::"CreateUser""#,
             AuthAction::UpdateUser => r#"Action::"UpdateUser""#,
             AuthAction::DeleteUser => r#"Action::"DeleteUser""#,
+            AuthAction::ListDepartment => r#"Action::"ListDepartment""#,
             AuthAction::ViewDepartment => r#"Action::"ViewDepartment""#,
             AuthAction::ViewDepartmentUsers => r#"Action::"ViewDepartmentUsers""#,
             AuthAction::CreateDepartment => r#"Action::"CreateDepartment""#,
@@ -188,13 +164,4 @@ impl AuthorizationBuilder {
 
         Ok((request, self.resource_entities))
     }
-}
-
-
-
-pub fn entities2json(entities: &Entities) -> Result<String, AppError> {
-    let mut buffer = Vec::new();
-    entities.write_to_json(&mut buffer)?;
-    let entities_json_str =String::from_utf8(buffer).map_err(anyhow::Error::from)?;
-    Ok(entities_json_str)
 }

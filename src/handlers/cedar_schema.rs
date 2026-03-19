@@ -1,7 +1,9 @@
 use crate::config::openapi::CEDAR_POLICY_TAG;
 use crate::errors::app_error::AppError;
-use crate::schemas::auth::CurrentUser;
-use crate::schemas::cedar_policy::{CedarContext, CedarPolicyResponse, CedarSchemaResponse, UpdateSchema};
+use crate::schemas::auth::{Claims};
+use crate::schemas::cedar_policy::{
+    CedarContext, CedarPolicyResponse, CedarSchemaResponse, UpdateSchema,
+};
 use crate::schemas::response::ApiResponse;
 use crate::services::cedar_schema::CedarSchemaService;
 use axum::extract::Query;
@@ -12,7 +14,6 @@ use axum::{
     Json,
 };
 use validator::Validate;
-
 
 #[utoipa::path(
     get,
@@ -25,17 +26,12 @@ use validator::Validate;
 )]
 pub async fn list_schema(
     State(service): State<CedarSchemaService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let schemas = service.list_schema(
-        current_user,
-        context,
-    ).await?;
+    let schemas = service.list_schema(current_user, context).await?;
     Ok(ApiResponse::success(schemas, StatusCode::OK))
 }
-
-
 
 #[utoipa::path(
     put,
@@ -53,17 +49,14 @@ pub async fn list_schema(
 )]
 pub async fn update_schema(
     State(service): State<CedarSchemaService>,
-    Extension(current_user): Extension<CurrentUser>,
+    Extension(current_user): Extension<Claims>,
     Extension(context): Extension<CedarContext>,
     Path(schema_id): Path<i32>,
     Json(dto): Json<UpdateSchema>,
 ) -> Result<impl IntoResponse, AppError> {
     dto.validate()?;
-    let schemas = service.update_schema(
-        current_user,
-        context,
-        schema_id,
-        dto
-    ).await?;
+    let schemas = service
+        .update_schema(current_user, context, schema_id, dto)
+        .await?;
     Ok(ApiResponse::success(schemas, StatusCode::OK))
 }

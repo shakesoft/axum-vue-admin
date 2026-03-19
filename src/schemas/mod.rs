@@ -1,10 +1,12 @@
 pub mod auth;
-pub mod department;
-pub mod paginated;
-pub mod password;
-pub mod response;
-pub mod role;
-pub mod user;
-pub mod groups;
-pub mod me;
+pub(crate) mod department;
+pub(crate) mod paginated;
+pub(crate) mod password;
+pub(crate) mod response;
+pub(crate) mod role;
+pub(crate) mod user;
+
 pub mod cedar_policy;
+pub(crate) mod groups;
+
+pub(crate) mod me;

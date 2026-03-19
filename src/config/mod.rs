@@ -1,17 +1,17 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 // 配置模块入口
 pub mod app;
 pub mod auth;
-pub mod openapi;
-pub mod state;
-pub mod redis;
 pub mod database;
 pub mod logging;
+pub mod openapi;
+pub mod redis;
 pub mod smtp;
+pub mod state;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -20,15 +20,23 @@ pub struct AppConfig {
     pub database: database::DatabaseConfig,
     pub redis: redis::RedisConfig,
     pub log: logging::LogConfig,
-    pub smtp: smtp::SmtpConfig,
+    pub smtp: smtp::SmtpConfig
 }
-
 
 impl AppConfig {
     /// 从文件加载配置
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<AppConfig, anyhow::Error> {
+    pub fn load_config<P: AsRef<Path>>(path: P) -> Result<AppConfig, anyhow::Error> {
         let content = fs::read_to_string(path)?;
-        let config: AppConfig = toml::from_str(&content)?;
+        let mut config: AppConfig = toml::from_str(&content)?;
+
+        if let Ok(env_db_url) = std::env::var("DATABASE_URL") {
+            config.database.url = env_db_url;
+        }
+
+        if let Ok(env_redis_url) = std::env::var("REDIS_URL") {
+            config.redis.url = env_redis_url;
+        }
+        
         config.validate()?;
         Ok(config)
     }
@@ -61,7 +69,7 @@ impl Default for AppConfig {
             app_name: "Axum Vue Admin".to_string(),
             server: app::ServerConfig::default(),
             database: database::DatabaseConfig::default(),
-            redis:  redis::RedisConfig::default(),
+            redis: redis::RedisConfig::default(),
             log: logging::LogConfig::default(),
             smtp: smtp::SmtpConfig::default(),
         }

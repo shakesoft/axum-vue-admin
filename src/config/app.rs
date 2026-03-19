@@ -17,7 +17,6 @@ pub struct ServerConfig {
     pub timeout_seconds: Option<u64>,
 }
 
-
 impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig {

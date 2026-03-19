@@ -1,9 +1,9 @@
 // 审计日志路由
 use crate::config::state::AppState;
-use crate::errors::app_error::AppError;
 use crate::entity::auditlog::{ActiveModel as AuditLogActiveModel, Entity as AuditLogEntity};
-use sea_orm::{ActiveModelTrait, Set};
+use crate::errors::app_error::AppError;
 use crate::schemas::user::UserUUID;
+use sea_orm::{ActiveModelTrait, Set};
 
 #[derive(Clone)]
 pub struct AuditLogService {
@@ -35,7 +35,7 @@ impl AuditLogService {
             updated_at: Set(chrono::Local::now().naive_local()),
             ..Default::default()
         };
-        audit_log.insert(&self.app_state.db).await?;
+        audit_log.insert(self.app_state.db.as_ref()).await?;
 
         Ok(())
     }

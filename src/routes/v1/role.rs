@@ -2,7 +2,7 @@
 
 use crate::config::state::AppState;
 use crate::handlers::role;
-use crate::services::role::RoleService;
+use crate::services::role::service::RoleService;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 

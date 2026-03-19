@@ -1,6 +1,6 @@
 //  分页响应的Response
 
-use axum::{Json, http::StatusCode, response::IntoResponse, response::Response};
+use axum::{http::StatusCode, response::IntoResponse, response::Response, Json};
 use serde::Serialize;
 use std::fmt;
 
@@ -33,7 +33,6 @@ impl<T: Serialize> PaginatedApiResponse<T> {
             page_size,
         }
     }
-    
 }
 
 // 为 PaginatedApiResponse 实现 IntoResponse

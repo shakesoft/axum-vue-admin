@@ -6,15 +6,14 @@ use cedar_policy::{Policy, PolicyId, PolicySet, Schema, Template};
 use futures_util::StreamExt as _;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 use std::str::FromStr;
-
-use tokio::time::{Duration, sleep};
-use tracing::{error, info, warn};
+use std::sync::Arc;
 use crate::schemas::cedar_policy::TemplateLinkRecord;
+use tokio::time::{sleep, Duration};
+use tracing::{error, info, warn};
 
 const MAX_RETRY_ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_secs(5);
 const CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(10);
-
 
 pub fn default_page() -> u64 {
     1
@@ -35,8 +34,6 @@ pub fn default_false() -> bool {
 pub fn default_number_1() -> i8 {
     1
 }
-
-
 
 // 后台任务：监听Redis Pub/Sub的策略更新通知
 pub async fn subscribe_to_policy_updates(state: AppState) {
@@ -108,13 +105,10 @@ async fn establish_subscription(state: &AppState) -> Result<(), AppError> {
 pub async fn reload_policies_and_schema(state: &AppState) -> Result<(), AppError> {
     info!("从数据库重新加载所有 Cedar 策略、模板、链接和模式...");
 
-    let (policies_result,
-        schema_result,
-        links_result
-    ) = tokio::join!(
-        load_active_policies_and_templates(&state.db),
-        load_active_schema(&state.db),
-        load_all_template_links(&state.db)
+    let (policies_result, schema_result, links_result) = tokio::join!(
+        load_active_policies_and_templates(state.db.clone()),
+        load_active_schema(state.db.clone()),
+        load_all_template_links(state.db.clone())
     );
 
     let new_policies = policies_result?;
@@ -123,17 +117,21 @@ pub async fn reload_policies_and_schema(state: &AppState) -> Result<(), AppError
 
     state.auth_service.update_schema(new_schema).await;
 
-    state.auth_service.update_policies_and_templates_in_cache(&new_policies).await?;
-    state.auth_service.update_template_link_records_in_cache(&new_links).await?;
+    state
+        .auth_service
+        .update_policies_and_templates_in_cache(&new_policies)
+        .await?;
+    state
+        .auth_service
+        .update_template_link_records_in_cache(&new_links)
+        .await?;
 
     Ok(())
 }
 
-pub async fn load_active_schema(db: &DatabaseConnection) -> Result<Schema, AppError> {
+pub async fn load_active_schema(db: Arc<DatabaseConnection>) -> Result<Schema, AppError> {
     info!("从数据库加载启用的 Cedar schema.............");
-    let active_schema_model = cedar_schema::Entity::find()
-        .one(db)
-        .await?;
+    let active_schema_model = cedar_schema::Entity::find().one(db.as_ref()).await?;
 
     match active_schema_model {
         Some(model) => {
@@ -152,11 +150,13 @@ pub async fn load_active_schema(db: &DatabaseConnection) -> Result<Schema, AppEr
     }
 }
 
-pub async fn load_active_policies_and_templates(db: &DatabaseConnection) -> Result<PolicySet, AppError> {
+pub async fn load_active_policies_and_templates(
+    db: Arc<DatabaseConnection>,
+) -> Result<PolicySet, AppError> {
     info!("从数据库加载活动的 Cedar 策略和模板...");
     let active_policy_models = cedar_policy_set::Entity::find()
         .filter(cedar_policy_set::Column::IsActive.eq(true))
-        .all(db)
+        .all(db.as_ref())
         .await?;
 
     if active_policy_models.is_empty() {
@@ -182,10 +182,11 @@ pub async fn load_active_policies_and_templates(db: &DatabaseConnection) -> Resu
     Ok(policy_set)
 }
 
-
-pub async fn load_all_template_links(db: &DatabaseConnection) -> Result<Vec<TemplateLinkRecord>, AppError> {
+pub async fn load_all_template_links(
+    db: Arc<DatabaseConnection>,
+) -> Result<Vec<TemplateLinkRecord>, AppError> {
     info!("从数据库加载所有模板链接...");
-    let link_models = template_links::Entity::find().all(db).await?;
+    let link_models = template_links::Entity::find().all(db.as_ref()).await?;
 
     let link_records = link_models
         .into_iter()
@@ -198,9 +199,6 @@ pub async fn load_all_template_links(db: &DatabaseConnection) -> Result<Vec<Temp
             })
         })
         .collect::<Result<Vec<TemplateLinkRecord>, AppError>>()?;
-    info!(
-        "已成功重新加载并缓存 {} 个模板链接",
-        link_records.len()
-    );
+    info!("已成功重新加载并缓存 {} 个模板链接", link_records.len());
     Ok(link_records)
 }

@@ -2,12 +2,12 @@
 
 pub use super::auditlog::Entity as Auditlog;
 pub use super::cedar_policy_set::Entity as CedarPolicySet;
-pub use super::template_links::Entity as TemplateLinks;
 pub use super::cedar_schema::Entity as CedarSchema;
 pub use super::departments::Entity as Departments;
 pub use super::group_roles::Entity as GroupRoles;
 pub use super::roles::Entity as Roles;
 pub use super::systems::Entity as Systems;
+pub use super::template_links::Entity as TemplateLinks;
 pub use super::user_group_members::Entity as UserGroupMembers;
 pub use super::user_groups::Entity as UserGroups;
 pub use super::user_roles::Entity as UserRoles;

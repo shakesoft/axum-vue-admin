@@ -10,7 +10,7 @@ pub struct Model {
     pub schema_uuid: String,
     pub schema: String,
     pub description: String,
-    #[sea_orm(custom_type="i8")]
+    #[sea_orm(custom_type = "i8")]
     pub is_active: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
